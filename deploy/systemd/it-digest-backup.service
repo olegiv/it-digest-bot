@@ -1,0 +1,32 @@
+[Unit]
+Description=it-digest-bot — daily SQLite state backup
+
+[Service]
+Type=oneshot
+User=it-digest
+Group=it-digest
+ExecStart=/usr/local/bin/it-digest-backup
+StandardOutput=journal
+StandardError=journal
+
+# Post a Telegram alert on nonzero exit (see it-digest-notify@.service).
+OnFailure=it-digest-notify@%N.service
+
+# Hardening — no network needed, read/write restricted to the backup dir
+# and read-only access to the DB (.backup copies to a new file).
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadOnlyPaths=/var/lib/it-digest
+ReadWritePaths=/var/backups/it-digest
+RestrictSUIDSGID=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+SystemCallArchitectures=native
+RestrictAddressFamilies=AF_UNIX
+SystemCallFilter=@system-service
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictNamespaces=true

@@ -1,0 +1,44 @@
+# Binaries
+/bin/
+*.exe
+*.dll
+*.so
+*.dylib
+
+# Test output
+*.test
+*.out
+coverage.txt
+coverage.html
+
+# Go workspace
+go.work
+go.work.sum
+
+# Dependency directories (vendoring)
+vendor/
+
+# Local state / secrets
+*.db
+*.sqlite
+*.sqlite3
+.env
+.env.local
+config.toml
+
+# IDE
+.idea/
+.vscode/
+*.iml
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Claude / tooling
+.claude/settings.local.json
+.audit/
+
+# Deploy — host-specific, personal
+deploy/deploy.env
+backups/

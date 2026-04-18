@@ -1,0 +1,47 @@
+version: "2"
+
+run:
+  timeout: 5m
+  tests: true
+
+linters:
+  default: none
+  enable:
+    - errcheck
+    - govet
+    - ineffassign
+    - staticcheck
+    - unused
+    - gosec
+    - revive
+    - gocritic
+  settings:
+    gosec:
+      excludes:
+        # G101: env-var NAMES are not credentials themselves.
+        - G101
+        # G304: file paths come from config or CLI flag, both operator-supplied.
+        - G304
+        # G404: rand/v2 is used only for retry-jitter, not cryptographic purposes.
+        - G404
+    revive:
+      rules:
+        - name: exported
+          disabled: true
+        - name: unused-parameter
+          disabled: true
+  exclusions:
+    rules:
+      - path: _test\.go
+        linters:
+          - gosec
+          - errcheck
+
+formatters:
+  enable:
+    - gofumpt
+    - goimports
+
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 0

@@ -1,0 +1,10 @@
+[Unit]
+Description=Post daily AI news digest at 08:00 Europe/Zurich
+
+[Timer]
+OnCalendar=*-*-* 08:00:00 Europe/Zurich
+AccuracySec=1min
+Persistent=true
+
+[Install]
+WantedBy=timers.target

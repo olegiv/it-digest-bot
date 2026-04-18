@@ -1,0 +1,10 @@
+[Unit]
+Description=Run it-digest SQLite backup daily at 03:00 Europe/Zurich
+
+[Timer]
+OnCalendar=*-*-* 03:00:00 Europe/Zurich
+AccuracySec=5min
+Persistent=true
+
+[Install]
+WantedBy=timers.target

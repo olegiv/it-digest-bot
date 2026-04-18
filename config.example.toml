@@ -1,0 +1,67 @@
+# it-digest-bot configuration
+#
+# Secrets are NEVER read from this file. They come from environment
+# variables (see .env.example):
+#   - TELEGRAM_BOT_TOKEN (required)
+#   - ANTHROPIC_API_KEY  (required for phase 2 / `digest daily`)
+#   - GITHUB_TOKEN       (optional; raises GitHub rate limit 60→5000 req/h)
+
+[telegram]
+channel = "@your_channel_here"
+
+# Optional. Destination for OnFailure alerts posted by the
+# it-digest-notify@.service template when watch/daily/backup exits
+# nonzero. Can be a chat username (e.g. "@admin_chat") or a numeric
+# chat id. If left empty, alerts go to the main channel above.
+#admin_chat = ""
+
+[database]
+path = "/var/lib/it-digest/state.db"
+
+[claudecode]
+npm_package = "@anthropic-ai/claude-code"
+github_repo = "anthropics/claude-code"
+
+[llm]
+model      = "claude-sonnet-4-6"
+max_tokens = 1024
+
+[log]
+level  = "info"   # debug | info | warn | error
+format = "json"   # json | text
+
+[digest]
+# How far back to look when selecting items from each feed. Combined with
+# articles_seen dedup, a wider window is safe — widened items already
+# posted in a previous run are filtered out. 48h is a good default because
+# several feeds (e.g. anthropic.com/news) stamp items at 00:00 UTC on the
+# publish day, which a 24h window can miss.
+lookback_hours = 48
+
+# Feeds for phase 2 (`digest daily`). Phase 2 is stubbed, so these are
+# scaffolding only — all URLs below were verified to return a valid
+# RSS/Atom feed at the time of writing.
+
+[[feed]]
+name = "Anthropic News"
+url  = "https://raw.githubusercontent.com/Olshansk/rss-feeds/main/feeds/feed_anthropic_news.xml"
+
+[[feed]]
+name = "OpenAI Blog"
+url  = "https://openai.com/blog/rss.xml"
+
+[[feed]]
+name = "Google DeepMind"
+url  = "https://deepmind.google/blog/rss.xml"
+
+[[feed]]
+name = "Hacker News — AI"
+url  = "https://hnrss.org/newest?q=AI&points=100"
+
+[[feed]]
+name = "arXiv cs.AI"
+url  = "https://export.arxiv.org/rss/cs.AI"
+
+[[feed]]
+name = "The Batch"
+url  = "https://charonhub.deeplearning.ai/rss/"

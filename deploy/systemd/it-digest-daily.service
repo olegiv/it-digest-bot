@@ -1,0 +1,35 @@
+[Unit]
+Description=it-digest-bot — daily AI news digest (phase 2)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=it-digest
+Group=it-digest
+Environment=TZ=Europe/Zurich
+EnvironmentFile=/etc/it-digest/env
+ExecStart=/usr/local/bin/digest daily --config /etc/it-digest/config.toml
+StandardOutput=journal
+StandardError=journal
+
+# Post a Telegram alert on nonzero exit (see it-digest-notify@.service).
+OnFailure=it-digest-notify@%N.service
+
+# Hardening
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/var/lib/it-digest
+RestrictSUIDSGID=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+SystemCallArchitectures=native
+RestrictAddressFamilies=AF_INET AF_INET6
+SystemCallFilter=@system-service
+SystemCallFilter=~@privileged @resources
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictNamespaces=true

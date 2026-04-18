@@ -1,0 +1,29 @@
+[Unit]
+Description=it-digest-bot — failure notifier for %i
+
+[Service]
+Type=oneshot
+User=it-digest
+Group=it-digest
+Environment=TZ=Europe/Zurich
+EnvironmentFile=/etc/it-digest/env
+ExecStart=/usr/local/bin/digest notify --unit %i --config /etc/it-digest/config.toml
+StandardOutput=journal
+StandardError=journal
+
+# Same hardening profile as the other services.
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+RestrictSUIDSGID=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+SystemCallArchitectures=native
+RestrictAddressFamilies=AF_INET AF_INET6
+SystemCallFilter=@system-service
+SystemCallFilter=~@privileged @resources
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictNamespaces=true
