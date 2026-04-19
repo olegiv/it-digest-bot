@@ -13,7 +13,7 @@ channel = "@your_channel_here"
 # it-digest-notify@.service template when watch/daily/backup exits
 # nonzero. Can be a chat username (e.g. "@admin_chat") or a numeric
 # chat id. If left empty, alerts go to the main channel above.
-#admin_chat = ""
+admin_chat = "@your_admin_chat"
 
 [database]
 path = "/var/lib/it-digest/state.db"
