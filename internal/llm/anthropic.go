@@ -48,7 +48,7 @@ func NewAnthropic(apiKey, model string, h *httpx.Client, opts ...AnthropicOption
 	return c
 }
 
-const systemPrompt = `You are an AI news curator for a daily Telegram digest. The audience is working software engineers and ML practitioners — people who ship code. They care about things that change what they can build or how they build it.
+const systemPromptTemplate = `You are an AI news curator for a daily Telegram digest. The audience is working software engineers and ML practitioners — people who ship code. They care about things that change what they can build or how they build it.
 
 You will receive a JSON array of article candidates from various AI-focused feeds. Each candidate has an "index" field.
 
@@ -78,7 +78,9 @@ STRONGLY DEPRIORITIZE (usually skip):
 - Generic "AI will change X industry" business pieces
 - Hype pieces without a concrete release, paper, or measurable result
 
-Pick the top items for this audience. Target 5 to 8; if fewer qualify, return fewer. Always include at least one item when ANY candidate is even tangentially engineering-relevant — an empty digest should only happen when every candidate is purely policy, fundraising, or general-business news. Don't be afraid to include borderline items that mention a release, paper, benchmark, or technical decision; your job is to surface signal for builders, not to be a strict gatekeeper.
+Pick the top items for this audience. Target 5 to 8 items total; if fewer qualify, return fewer. Always include at least one item when ANY candidate is even tangentially engineering-relevant — an empty digest should only happen when every candidate is purely policy, fundraising, or general-business news. Don't be afraid to include borderline items that mention a release, paper, benchmark, or technical decision; your job is to surface signal for builders, not to be a strict gatekeeper.
+
+DIVERSITY — HARD CAP: Return at most %d items from any single source (identified by the "source" field in the input). Even if one source has many strong candidates, pick its top %d and drop the rest; a slightly less important item from an uncovered source is better than a third item from a source already represented. This cap is non-negotiable and applies even on a big-news day for a single provider.
 
 Output: ONLY a JSON array with this exact shape. No prose before or after. No code fences.
 [
@@ -88,6 +90,26 @@ Output: ONLY a JSON array with this exact shape. No prose before or after. No co
 ]
 
 Order by importance, most important first. Write in English. Do not quote article text verbatim.`
+
+// buildSystemPrompt returns the system prompt with the per-source cap
+// interpolated. When maxPerSource <= 0 the cap block is stripped so the
+// prompt matches the pre-cap behavior.
+func buildSystemPrompt(maxPerSource int) string {
+	if maxPerSource <= 0 {
+		// Strip the DIVERSITY paragraph (and the blank line before it).
+		const marker = "\n\nDIVERSITY"
+		i := strings.Index(systemPromptTemplate, marker)
+		if i < 0 {
+			return systemPromptTemplate
+		}
+		j := strings.Index(systemPromptTemplate[i+2:], "\n\n")
+		if j < 0 {
+			return systemPromptTemplate[:i]
+		}
+		return systemPromptTemplate[:i] + systemPromptTemplate[i+2+j:]
+	}
+	return fmt.Sprintf(systemPromptTemplate, maxPerSource, maxPerSource)
+}
 
 // anthropicRequest mirrors /v1/messages. Only the fields we actually set.
 type anthropicRequest struct {
@@ -131,7 +153,7 @@ func (c *AnthropicClient) Summarize(ctx context.Context, req SummarizeRequest) (
 		maxTokens = 1024
 	}
 
-	userText, err := buildUserPrompt(req.Articles)
+	userText, err := buildUserPrompt(req.Articles, req.MaxPerSource)
 	if err != nil {
 		return nil, fmt.Errorf("build prompt: %w", err)
 	}
@@ -139,7 +161,7 @@ func (c *AnthropicClient) Summarize(ctx context.Context, req SummarizeRequest) (
 	reqBody, err := json.Marshal(anthropicRequest{
 		Model:     model,
 		MaxTokens: maxTokens,
-		System:    []anthropicContent{{Type: "text", Text: systemPrompt}},
+		System:    []anthropicContent{{Type: "text", Text: buildSystemPrompt(req.MaxPerSource)}},
 		Messages:  []anthropicMessage{{Role: "user", Content: userText}},
 	})
 	if err != nil {
@@ -184,7 +206,7 @@ func (c *AnthropicClient) Summarize(ctx context.Context, req SummarizeRequest) (
 	return parseSummaries(text)
 }
 
-func buildUserPrompt(articles []Article) (string, error) {
+func buildUserPrompt(articles []Article, maxPerSource int) (string, error) {
 	type candidate struct {
 		Index     int    `json:"index"`
 		Source    string `json:"source"`
@@ -208,7 +230,11 @@ func buildUserPrompt(articles []Article) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return "Candidates (pick 5 to 8):\n\n" + string(b), nil
+	header := "Candidates (pick 5 to 8):"
+	if maxPerSource > 0 {
+		header = fmt.Sprintf("Candidates (pick 5 to 8, max %d per source):", maxPerSource)
+	}
+	return header + "\n\n" + string(b), nil
 }
 
 func parseSummaries(s string) ([]Summary, error) {

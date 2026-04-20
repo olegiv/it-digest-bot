@@ -57,7 +57,16 @@ type LogConfig struct {
 
 type DigestConfig struct {
 	LookbackHours int `toml:"lookback_hours"`
+	// MaxPerSource caps how many items from any single feed source can
+	// appear in one digest. 0 means "use the default"; set explicitly to
+	// a negative value to disable the cap entirely. Defense-in-depth
+	// against an LLM that ignores the per-source instruction in the
+	// system prompt.
+	MaxPerSource int `toml:"max_per_source"`
 }
+
+// DefaultMaxPerSource is applied when DigestConfig.MaxPerSource is 0.
+const DefaultMaxPerSource = 2
 
 type FeedConfig struct {
 	Name string `toml:"name"`
@@ -87,6 +96,10 @@ func Load(path string) (*Config, error) {
 	cfg.Telegram.BotToken = os.Getenv(EnvTelegramBotToken)
 	cfg.LLM.APIKey = os.Getenv(EnvAnthropicAPIKey)
 	cfg.ClaudeCode.GitHubToken = os.Getenv(EnvGitHubToken)
+
+	if cfg.Digest.MaxPerSource == 0 {
+		cfg.Digest.MaxPerSource = DefaultMaxPerSource
+	}
 
 	if err := cfg.Validate(); err != nil {
 		return nil, err

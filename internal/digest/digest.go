@@ -27,9 +27,14 @@ type Builder struct {
 	Channel    string
 	Model      string
 	MaxTokens  int
-	Articles   *store.Articles
-	Posts      *store.Posts
-	Logger     *slog.Logger
+	// MaxPerSource caps how many items from any single source make it
+	// into the digest. The LLM is instructed to respect this cap in its
+	// system prompt; capPerSource runs as a deterministic backstop in
+	// case the model ignores the instruction. 0 disables both layers.
+	MaxPerSource int
+	Articles     *store.Articles
+	Posts        *store.Posts
+	Logger       *slog.Logger
 
 	// DryRun, when true, prints rendered messages to DryOut instead of
 	// sending them to Telegram, and skips all DB writes (articles_seen,
@@ -73,15 +78,19 @@ func (b *Builder) Run(ctx context.Context) (*Result, error) {
 	}
 
 	summaries, err := b.Summarizer.Summarize(ctx, llm.SummarizeRequest{
-		Model:     b.Model,
-		MaxTokens: b.MaxTokens,
-		Articles:  itemsToLLMArticles(fresh),
+		Model:        b.Model,
+		MaxTokens:    b.MaxTokens,
+		Articles:     itemsToLLMArticles(fresh),
+		MaxPerSource: b.MaxPerSource,
 	})
 	if err != nil {
 		return res, fmt.Errorf("summarize: %w", err)
 	}
-	res.Summaries = len(summaries)
 	log.Info("summaries returned", "count", len(summaries))
+	if b.MaxPerSource > 0 {
+		summaries = capPerSource(summaries, fresh, b.MaxPerSource, log)
+	}
+	res.Summaries = len(summaries)
 	if len(summaries) == 0 {
 		log.Info("no summaries returned; exiting")
 		return res, nil

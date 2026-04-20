@@ -57,17 +57,18 @@ func newDailyCmd(flags *rootFlags) *cobra.Command {
 					news.WithLookback(time.Duration(cfg.Digest.LookbackHours)*time.Hour))
 			}
 			builder := &digest.Builder{
-				Fetcher:    news.NewFeedFetcher(feedsFromConfig(cfg.Feeds), feedHTTP, fetcherOpts...),
-				Summarizer: llm.NewAnthropic(cfg.LLM.APIKey, cfg.LLM.Model, apiHTTP),
-				Bot:        telegram.New(cfg.Telegram.BotToken, telegram.WithHTTPClient(tgHTTP)),
-				Channel:    cfg.Telegram.Channel,
-				Model:      cfg.LLM.Model,
-				MaxTokens:  cfg.LLM.MaxTokens,
-				Articles:   st.Articles,
-				Posts:      st.Posts,
-				Logger:     log,
-				DryRun:     dryRun,
-				DryOut:     cmd.OutOrStdout(),
+				Fetcher:      news.NewFeedFetcher(feedsFromConfig(cfg.Feeds), feedHTTP, fetcherOpts...),
+				Summarizer:   llm.NewAnthropic(cfg.LLM.APIKey, cfg.LLM.Model, apiHTTP),
+				Bot:          telegram.New(cfg.Telegram.BotToken, telegram.WithHTTPClient(tgHTTP)),
+				Channel:      cfg.Telegram.Channel,
+				Model:        cfg.LLM.Model,
+				MaxTokens:    cfg.LLM.MaxTokens,
+				MaxPerSource: cfg.Digest.MaxPerSource,
+				Articles:     st.Articles,
+				Posts:        st.Posts,
+				Logger:       log,
+				DryRun:       dryRun,
+				DryOut:       cmd.OutOrStdout(),
 			}
 
 			res, err := builder.Run(ctx)

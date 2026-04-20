@@ -10,6 +10,11 @@ type SummarizeRequest struct {
 	Model     string
 	MaxTokens int
 	Articles  []Article
+	// MaxPerSource, when > 0, is surfaced to the model as a hard cap on
+	// how many items from any single source it may return. The caller is
+	// still expected to enforce this as a backstop, since a probabilistic
+	// model can ignore the instruction.
+	MaxPerSource int
 }
 
 // Article is an item the model is asked to rank and summarize.

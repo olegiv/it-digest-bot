@@ -38,6 +38,11 @@ format = "json"   # json | text
 # publish day, which a 24h window can miss.
 lookback_hours = 48
 
+# Cap on items from any single feed source per digest. Prevents a
+# single-provider flood on a big-news day. 0 (or unset) → default of 2.
+# Set to a negative number to disable the cap.
+max_per_source = 2
+
 # Feeds for phase 2 (`digest daily`). Phase 2 is stubbed, so these are
 # scaffolding only — all URLs below were verified to return a valid
 # RSS/Atom feed at the time of writing.
