@@ -38,9 +38,15 @@ format = "json"   # json | text
 # publish day, which a 24h window can miss.
 lookback_hours = 48
 
-# Feeds for phase 2 (`digest daily`). Phase 2 is stubbed, so these are
-# scaffolding only — all URLs below were verified to return a valid
-# RSS/Atom feed at the time of writing.
+# Cap on items from any single feed source per digest. Prevents a
+# single-provider flood on a big-news day. 0 (or unset) → default of 2.
+# Set to a negative number to disable the cap.
+max_per_source = 2
+
+# Feeds for the daily digest (`digest daily`). Each entry is fetched
+# in parallel, deduped against articles_seen, ranked and summarized
+# by Claude, then posted grouped by source. The list below is a
+# starting set — edit freely to match your interests.
 
 [[feed]]
 name = "Anthropic News"

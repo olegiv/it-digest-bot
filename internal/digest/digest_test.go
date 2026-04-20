@@ -186,6 +186,72 @@ func TestBuilderNoItemsExitsCleanly(t *testing.T) {
 	}
 }
 
+func TestBuilderCapsPerSource(t *testing.T) {
+	t.Parallel()
+
+	var lastText string
+	var tgCalls int32
+	tgSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&tgCalls, 1)
+		b := make([]byte, r.ContentLength)
+		_, _ = r.Body.Read(b)
+		lastText = string(b)
+		_, _ = w.Write([]byte(`{"ok":true,"result":{"message_id":7}}`))
+	}))
+	defer tgSrv.Close()
+
+	st := openStore(t)
+	// 5 Anthropic + 1 OpenAI — simulates the "8 from one source" bug.
+	items := []news.Item{
+		{Source: "Anthropic", Title: "A1", URL: "https://anthropic.com/1", Published: time.Now()},
+		{Source: "Anthropic", Title: "A2", URL: "https://anthropic.com/2", Published: time.Now()},
+		{Source: "Anthropic", Title: "A3", URL: "https://anthropic.com/3", Published: time.Now()},
+		{Source: "Anthropic", Title: "A4", URL: "https://anthropic.com/4", Published: time.Now()},
+		{Source: "Anthropic", Title: "A5", URL: "https://anthropic.com/5", Published: time.Now()},
+		{Source: "OpenAI", Title: "O1", URL: "https://openai.com/1", Published: time.Now()},
+	}
+	// LLM ignores the prompt and returns all 5 Anthropic items — the
+	// backstop must trim to the cap.
+	sum := &fakeSummarizer{summaries: []llm.Summary{
+		{SourceIndex: 0, Headline: "A1", Blurb: "b"},
+		{SourceIndex: 1, Headline: "A2", Blurb: "b"},
+		{SourceIndex: 2, Headline: "A3", Blurb: "b"},
+		{SourceIndex: 3, Headline: "A4", Blurb: "b"},
+		{SourceIndex: 4, Headline: "A5", Blurb: "b"},
+		{SourceIndex: 5, Headline: "O1", Blurb: "b"},
+	}}
+
+	b := &Builder{
+		Fetcher:    fakeFetcher{items: items},
+		Summarizer: sum,
+		Bot: telegram.New("t", telegram.WithBaseURL(tgSrv.URL),
+			telegram.WithHTTPClient(httpx.New(httpx.WithSleep(nopSleep), httpx.WithMaxRetries(0)))),
+		Channel:      "@c",
+		MaxPerSource: 2,
+		Articles:     st.Articles,
+		Posts:        st.Posts,
+	}
+
+	res, err := b.Run(context.Background())
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	// 2 Anthropic + 1 OpenAI survive the cap.
+	if res.Summaries != 3 {
+		t.Errorf("Summaries = %d, want 3 after cap", res.Summaries)
+	}
+	for _, dropped := range []string{"A3", "A4", "A5"} {
+		if strings.Contains(lastText, dropped) {
+			t.Errorf("dropped item %q leaked into post: %s", dropped, lastText)
+		}
+	}
+	for _, kept := range []string{"A1", "A2", "O1"} {
+		if !strings.Contains(lastText, kept) {
+			t.Errorf("kept item %q missing from post: %s", kept, lastText)
+		}
+	}
+}
+
 func TestBuilderPropagatesSummarizerError(t *testing.T) {
 	t.Parallel()
 	st := openStore(t)
