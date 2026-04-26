@@ -145,6 +145,9 @@ func (f *FeedFetcher) fetchBody(ctx context.Context, url string) ([]byte, error)
 	if err != nil {
 		return nil, err
 	}
+	if resp == nil {
+		return nil, fmt.Errorf("fetch feed: nil response")
+	}
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("http %d", resp.StatusCode)

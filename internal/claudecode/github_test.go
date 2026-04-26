@@ -119,6 +119,95 @@ func TestGitHubTagWithoutV(t *testing.T) {
 	}
 }
 
+func TestFetchLatestRelease_Success(t *testing.T) {
+	t.Parallel()
+	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !strings.HasSuffix(r.URL.Path, "/releases/latest") {
+			t.Errorf("path = %q, want suffix /releases/latest", r.URL.Path)
+		}
+		fmt.Fprint(w, `{
+            "html_url": "https://github.com/anthropics/claude-code/releases/tag/v2.1.119",
+            "body": "## Changes\n- thing",
+            "tag_name": "v2.1.119"
+        }`)
+	}))
+	defer api.Close()
+
+	g := NewGitHubClient(testHTTP(), "").WithBaseURLs(api.URL, "unused")
+	rel, err := g.FetchLatestRelease(context.Background(), "anthropics/claude-code")
+	if err != nil {
+		t.Fatalf("FetchLatestRelease: %v", err)
+	}
+	if rel.Version != "2.1.119" {
+		t.Errorf("version = %q, want %q (leading 'v' must be stripped)", rel.Version, "2.1.119")
+	}
+	if !strings.Contains(rel.Body, "thing") {
+		t.Errorf("body = %q", rel.Body)
+	}
+	if rel.ReleaseURL == "" {
+		t.Error("release URL missing")
+	}
+}
+
+func TestFetchLatestRelease_NotFound(t *testing.T) {
+	t.Parallel()
+	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer api.Close()
+
+	g := NewGitHubClient(testHTTP(), "").WithBaseURLs(api.URL, "unused")
+	_, err := g.FetchLatestRelease(context.Background(), "owner/repo")
+	if !errors.Is(err, ErrReleaseNotFound) {
+		t.Errorf("err = %v, want ErrReleaseNotFound", err)
+	}
+}
+
+func TestFetchLatestRelease_RejectsPrerelease(t *testing.T) {
+	t.Parallel()
+	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		fmt.Fprint(w, `{"html_url":"x","body":"y","tag_name":"v3.0.0-rc1","draft":false,"prerelease":true}`)
+	}))
+	defer api.Close()
+
+	g := NewGitHubClient(testHTTP(), "").WithBaseURLs(api.URL, "unused")
+	_, err := g.FetchLatestRelease(context.Background(), "owner/repo")
+	if !errors.Is(err, ErrReleaseNotFound) {
+		t.Errorf("prerelease must map to ErrReleaseNotFound, got %v", err)
+	}
+}
+
+func TestFetchLatestRelease_RejectsDraft(t *testing.T) {
+	t.Parallel()
+	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		fmt.Fprint(w, `{"html_url":"x","body":"y","tag_name":"v3.0.0","draft":true,"prerelease":false}`)
+	}))
+	defer api.Close()
+
+	g := NewGitHubClient(testHTTP(), "").WithBaseURLs(api.URL, "unused")
+	_, err := g.FetchLatestRelease(context.Background(), "owner/repo")
+	if !errors.Is(err, ErrReleaseNotFound) {
+		t.Errorf("draft must map to ErrReleaseNotFound, got %v", err)
+	}
+}
+
+func TestFetchLatestRelease_HTTPError(t *testing.T) {
+	t.Parallel()
+	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		http.Error(w, "boom", http.StatusInternalServerError)
+	}))
+	defer api.Close()
+
+	g := NewGitHubClient(testHTTP(), "").WithBaseURLs(api.URL, "unused")
+	_, err := g.FetchLatestRelease(context.Background(), "owner/repo")
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	if errors.Is(err, ErrReleaseNotFound) {
+		t.Errorf("non-404 status must not map to ErrReleaseNotFound, got %v", err)
+	}
+}
+
 func TestGitHubAuthHeader(t *testing.T) {
 	t.Parallel()
 	var gotAuth string

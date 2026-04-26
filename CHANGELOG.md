@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning 2.0.0](https://semver.org/spec/
 
 ## [Unreleased]
 
+### Fixed
+
+- `digest watch` no longer re-posts a release that's already in
+  `releases_seen` after npm's `dist-tags.latest` rolls back. The
+  duplicate-detection check now looks up `(package, version)` directly
+  via `Releases.HasSeen` instead of comparing against the
+  most-recently-posted row, which could be a different (newer) version
+  than the one npm currently considers latest.
+- `digest watch` now requires npm `dist-tags.latest` and GitHub
+  `/releases/latest` to name the same version before posting. A
+  short-lived npm publish that gets demoted (or never gets a
+  corresponding GitHub Release) no longer triggers a Telegram
+  announcement; the bot defers silently until both signals agree.
+  Draft and prerelease responses from GitHub are rejected as
+  defense-in-depth, even though the endpoint already filters them.
+
 ## [0.1.0] — 2026-04-19
 
 Initial public release.

@@ -122,6 +122,9 @@ func (b *Bot) SendMessage(ctx context.Context, chat, text string, mode ParseMode
 	if err != nil {
 		return 0, fmt.Errorf("send to telegram: %w", err)
 	}
+	if resp == nil {
+		return 0, fmt.Errorf("send to telegram: nil response")
+	}
 	defer func() { _ = resp.Body.Close() }()
 
 	buf, err := io.ReadAll(resp.Body)

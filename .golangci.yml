@@ -24,6 +24,10 @@ linters:
         - G304
         # G404: rand/v2 is used only for retry-jitter, not cryptographic purposes.
         - G404
+        # G704: HTTP request URLs are constructed from operator-supplied
+        # config (npm package, github repo, feed URLs) — same trust
+        # boundary as G304, not attacker-controlled input.
+        - G704
     revive:
       rules:
         - name: exported

@@ -60,6 +60,9 @@ func (c *NPMClient) FetchLatest(ctx context.Context, pkg string) (*PackageInfo, 
 	if err != nil {
 		return nil, fmt.Errorf("fetch npm %s: %w", pkg, err)
 	}
+	if resp == nil {
+		return nil, fmt.Errorf("fetch npm %s: nil response", pkg)
+	}
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
 		_, _ = io.Copy(io.Discard, resp.Body)

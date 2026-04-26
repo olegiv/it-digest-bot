@@ -55,27 +55,45 @@ func (w *Watcher) Run(ctx context.Context) (*Result, error) {
 	res := &Result{LatestVersion: info.LatestVersion}
 	log.Info("npm latest", "package", w.Package, "version", info.LatestVersion)
 
-	seen, err := w.Releases.GetLatestSeen(ctx, w.Package)
-	if err != nil && !errors.Is(err, store.ErrNotFound) {
+	seen, err := w.Releases.HasSeen(ctx, w.Package, info.LatestVersion)
+	if err != nil {
 		return res, fmt.Errorf("store lookup: %w", err)
 	}
-	if seen != nil && seen.Version == info.LatestVersion {
+	if seen {
 		log.Info("no new release",
 			"package", w.Package,
-			"version", info.LatestVersion,
-			"last_posted_at", seen.PostedAt)
+			"version", info.LatestVersion)
 		return res, nil
 	}
 
-	notes, err := w.GitHub.FetchReleaseNotes(ctx, w.GitHubRepo, info.LatestVersion)
+	// Cross-check against GitHub's "Latest release" marker before posting.
+	// npm's dist-tags.latest can flip backward (yank, dist-tag retraction) —
+	// requiring agreement with GitHub's deliberate maintainer toggle prevents
+	// announcing a version that gets demoted minutes later.
+	ghLatest, err := w.GitHub.FetchLatestRelease(ctx, w.GitHubRepo)
 	if err != nil {
-		return res, fmt.Errorf("github fetch: %w", err)
+		if errors.Is(err, ErrReleaseNotFound) {
+			log.Info("github has no published latest release; deferring",
+				"package", w.Package,
+				"npm", info.LatestVersion)
+			return res, nil
+		}
+		return res, fmt.Errorf("github latest: %w", err)
+	}
+	log.Info("github latest", "repo", w.GitHubRepo, "version", ghLatest.Version)
+
+	if ghLatest.Version != info.LatestVersion {
+		log.Info("npm and github disagree on latest; deferring post until they agree",
+			"package", w.Package,
+			"npm", info.LatestVersion,
+			"github", ghLatest.Version)
+		return res, nil
 	}
 
 	msg := FormatRelease(
 		info.LatestVersion,
-		notes.Body,
-		notes.ReleaseURL,
+		ghLatest.Body,
+		ghLatest.ReleaseURL,
 		NPMPackageURL(w.Package),
 	)
 
@@ -91,14 +109,14 @@ func (w *Watcher) Run(ctx context.Context) (*Result, error) {
 	res.Posted = true
 	res.MessageID = msgID
 
-	if err := w.Releases.RecordSeen(ctx, w.Package, info.LatestVersion, msgID, notes.ReleaseURL); err != nil {
+	if err := w.Releases.RecordSeen(ctx, w.Package, info.LatestVersion, msgID, ghLatest.ReleaseURL); err != nil {
 		return res, fmt.Errorf("record release: %w", err)
 	}
 
 	payload, _ := json.Marshal(map[string]any{
 		"package": w.Package,
 		"version": info.LatestVersion,
-		"url":     notes.ReleaseURL,
+		"url":     ghLatest.ReleaseURL,
 	})
 	if _, err := w.Posts.Record(ctx, store.KindRelease, string(payload), msgID); err != nil {
 		log.Warn("record posts_log failed", "err", err)

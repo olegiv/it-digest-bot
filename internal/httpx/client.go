@@ -132,15 +132,19 @@ func (c *Client) Do(ctx context.Context, req *http.Request) (*http.Response, err
 		}
 
 		resp, err := c.http.Do(req)
-		if err == nil && !isRetryableStatus(resp.StatusCode) {
-			return resp, nil
-		}
 		if err != nil {
 			lastErr = err
 			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 				return nil, err
 			}
 			continue
+		}
+		if resp == nil {
+			lastErr = errors.New("nil http response")
+			continue
+		}
+		if !isRetryableStatus(resp.StatusCode) {
+			return resp, nil
 		}
 		// retryable status — drain + close and loop.
 		_, _ = io.Copy(io.Discard, resp.Body)

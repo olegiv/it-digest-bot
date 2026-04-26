@@ -181,6 +181,9 @@ func (c *AnthropicClient) Summarize(ctx context.Context, req SummarizeRequest) (
 	if err != nil {
 		return nil, fmt.Errorf("call /v1/messages: %w", err)
 	}
+	if resp == nil {
+		return nil, fmt.Errorf("call /v1/messages: nil response")
+	}
 	defer func() { _ = resp.Body.Close() }()
 
 	buf, err := io.ReadAll(resp.Body)

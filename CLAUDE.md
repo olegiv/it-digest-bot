@@ -31,7 +31,7 @@ CI (`.github/workflows`) runs build + vet + race + lint on push/PR to `main`.
 
 Two flows, each driven by its own systemd unit pair under `deploy/systemd/`:
 
-1. **`digest watch`** (hourly) — `internal/claudecode/Watcher`: query npm `dist-tags.latest` for `@anthropic-ai/claude-code` → diff against `releases_seen (package, version)` → if new, fetch release notes from GitHub (or fall back to `CHANGELOG.md`) → render MarkdownV2 → post → record. Re-running is safe.
+1. **`digest watch`** (hourly) — `internal/claudecode/Watcher`: query npm `dist-tags.latest` for `@anthropic-ai/claude-code` → check `(package, version)` against `releases_seen` and skip if already posted → fetch GitHub `/releases/latest` and require it to name the same version (defense against npm dist-tag rollbacks/yanks; drafts and prereleases are rejected) → render MarkdownV2 → post → record. Re-running is safe; disagreement and the already-seen case both defer cleanly with no Telegram or DB writes.
 
 2. **`digest daily`** (08:00 Europe/Zurich) — `internal/digest/Builder`: `errgroup` parallel-fetch of all `[[feed]]` entries → dedupe via `articles_seen.url_hash` (SHA-256 of canonicalized URL) → send the 24h window to Anthropic `/v1/messages` for ranking + summarization → render MarkdownV2 grouped by source → split into chunks under `telegram.MaxMessageBytes` (4096) → post each chunk → record per chunk.
 

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 
 	"github.com/olegiv/it-digest-bot/internal/httpx"
 )
@@ -44,9 +45,73 @@ type ReleaseNotes struct {
 	ReleaseURL string // html_url for the GitHub release page
 }
 
+// LatestRelease is what /repos/{repo}/releases/latest returns: the
+// version GitHub considers "Latest" (excludes prereleases and drafts),
+// plus its notes body and html URL. The watcher uses this as a
+// deliberate "release is officially shipped" signal that's harder to
+// flip than npm's dist-tags.latest.
+type LatestRelease struct {
+	Version    string // tag_name with leading "v" stripped
+	Body       string
+	ReleaseURL string
+}
+
 // ErrReleaseNotFound is returned when a tag has no GitHub release AND no
-// matching section exists in CHANGELOG.md.
+// matching section exists in CHANGELOG.md, or when /releases/latest
+// returns 404 (no published non-prerelease release).
 var ErrReleaseNotFound = errors.New("release notes not found")
+
+// FetchLatestRelease returns the version + notes for the release GitHub
+// has marked as "Latest" (the /releases/latest endpoint, which excludes
+// prereleases and drafts). 404 is mapped to ErrReleaseNotFound so
+// callers can distinguish "not yet shipped" from transport errors.
+func (g *GitHubClient) FetchLatestRelease(ctx context.Context, repo string) (*LatestRelease, error) {
+	u := fmt.Sprintf("%s/repos/%s/releases/latest", g.apiBaseURL, repo)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+	if err != nil {
+		return nil, fmt.Errorf("build github request: %w", err)
+	}
+	req.Header.Set("Accept", "application/vnd.github+json")
+	req.Header.Set("X-GitHub-Api-Version", "2022-11-28")
+	if g.token != "" {
+		req.Header.Set("Authorization", "Bearer "+g.token)
+	}
+
+	resp, err := g.http.Do(ctx, req)
+	if err != nil {
+		return nil, fmt.Errorf("fetch github latest %s: %w", repo, err)
+	}
+	if resp == nil {
+		return nil, fmt.Errorf("fetch github latest %s: nil response", repo)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode == http.StatusNotFound {
+		return nil, ErrReleaseNotFound
+	}
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("github latest %s: http %d", repo, resp.StatusCode)
+	}
+
+	var rel ghRelease
+	if err := json.NewDecoder(resp.Body).Decode(&rel); err != nil {
+		return nil, fmt.Errorf("decode github latest: %w", err)
+	}
+	if rel.TagName == "" {
+		return nil, fmt.Errorf("github latest %s: empty tag_name", repo)
+	}
+	// Belt-and-braces: /releases/latest is documented to exclude drafts
+	// and prereleases, but recheck explicitly so a future API regression
+	// can't silently announce a prerelease.
+	if rel.Draft || rel.Prerelease {
+		return nil, ErrReleaseNotFound
+	}
+	return &LatestRelease{
+		Version:    strings.TrimPrefix(rel.TagName, "v"),
+		Body:       rel.Body,
+		ReleaseURL: rel.HTMLURL,
+	}, nil
+}
 
 // FetchReleaseNotes returns the markdown body of the GitHub release for a
 // given repo and tag (e.g. repo="anthropics/claude-code", tag="2.1.114").
@@ -75,9 +140,11 @@ func (g *GitHubClient) FetchReleaseNotes(ctx context.Context, repo, tag string) 
 var errGitHub404 = errors.New("github 404")
 
 type ghRelease struct {
-	HTMLURL string `json:"html_url"`
-	Body    string `json:"body"`
-	TagName string `json:"tag_name"`
+	HTMLURL    string `json:"html_url"`
+	Body       string `json:"body"`
+	TagName    string `json:"tag_name"`
+	Draft      bool   `json:"draft"`
+	Prerelease bool   `json:"prerelease"`
 }
 
 func (g *GitHubClient) fetchRelease(ctx context.Context, repo, tag string) (*ReleaseNotes, error) {
@@ -95,6 +162,9 @@ func (g *GitHubClient) fetchRelease(ctx context.Context, repo, tag string) (*Rel
 	resp, err := g.http.Do(ctx, req)
 	if err != nil {
 		return nil, fmt.Errorf("fetch github release %s %s: %w", repo, tag, err)
+	}
+	if resp == nil {
+		return nil, fmt.Errorf("fetch github release %s %s: nil response", repo, tag)
 	}
 	defer func() { _ = resp.Body.Close() }()
 
@@ -121,6 +191,9 @@ func (g *GitHubClient) fetchChangelog(ctx context.Context, repo, version string)
 	resp, err := g.http.Do(ctx, req)
 	if err != nil {
 		return nil, fmt.Errorf("fetch changelog %s: %w", repo, err)
+	}
+	if resp == nil {
+		return nil, fmt.Errorf("fetch changelog %s: nil response", repo)
 	}
 	defer func() { _ = resp.Body.Close() }()
 
