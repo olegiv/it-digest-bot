@@ -231,11 +231,12 @@ func TestWatcherSkipsWhenNpmAndGitHubDisagree(t *testing.T) {
 	}
 }
 
-// TestWatcherSkipsWhenGitHubLatestNotFound covers the case where
-// GitHub returns 404 for /releases/latest (e.g. the most recent
-// release is a draft or prerelease, or none exist). The watcher
-// must defer cleanly without erroring out.
-func TestWatcherSkipsWhenGitHubLatestNotFound(t *testing.T) {
+// TestWatcherSkipsWhenGitHubHasNoQualifyingRelease covers the case
+// where the repo IS accessible (the /repos probe returns 200) but
+// /releases/latest returns 404 because no release qualifies (only
+// drafts/prereleases exist, or none at all). The watcher must defer
+// cleanly without erroring out.
+func TestWatcherSkipsWhenGitHubHasNoQualifyingRelease(t *testing.T) {
 	t.Parallel()
 
 	var tgCalls int32
@@ -245,7 +246,15 @@ func TestWatcherSkipsWhenGitHubLatestNotFound(t *testing.T) {
 	defer npmSrv.Close()
 
 	ghAPI := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		http.NotFound(w, r)
+		switch {
+		case strings.HasSuffix(r.URL.Path, "/releases/latest"):
+			http.NotFound(w, r)
+		case strings.HasSuffix(r.URL.Path, "/repos/anthropics/claude-code"):
+			fmt.Fprint(w, `{"id":1,"name":"claude-code","full_name":"anthropics/claude-code"}`)
+		default:
+			t.Errorf("unexpected GitHub path: %s", r.URL.Path)
+			http.NotFound(w, r)
+		}
 	}))
 	defer ghAPI.Close()
 
@@ -272,7 +281,56 @@ func TestWatcherSkipsWhenGitHubLatestNotFound(t *testing.T) {
 		t.Fatalf("Run: %v", err)
 	}
 	if res.Posted {
-		t.Error("expected Posted=false when GitHub has no latest release")
+		t.Error("expected Posted=false when GitHub has no qualifying release")
+	}
+	if got := atomic.LoadInt32(&tgCalls); got != 0 {
+		t.Errorf("telegram calls = %d, want 0", got)
+	}
+}
+
+// TestWatcherErrorsOnInaccessibleGitHubRepo covers the misconfiguration
+// case: /releases/latest 404 AND /repos probe 404 (typo in
+// github_repo, repo deleted/renamed, or revoked GITHUB_TOKEN). The
+// watcher must surface an error so systemd's OnFailure notify alert
+// fires, instead of silently deferring forever.
+func TestWatcherErrorsOnInaccessibleGitHubRepo(t *testing.T) {
+	t.Parallel()
+
+	var tgCalls int32
+	npmSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		fmt.Fprint(w, `{"dist-tags":{"latest":"2.1.120"},"time":{"2.1.120":"2026-04-25T00:00:00Z"}}`)
+	}))
+	defer npmSrv.Close()
+
+	ghAPI := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer ghAPI.Close()
+
+	tgSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		atomic.AddInt32(&tgCalls, 1)
+		_, _ = w.Write([]byte(`{"ok":true,"result":{"message_id":1}}`))
+	}))
+	defer tgSrv.Close()
+
+	st := openStore(t)
+	w := &Watcher{
+		Package:    "@anthropic-ai/claude-code",
+		GitHubRepo: "anthropics/claude-code",
+		Channel:    "@ch",
+		NPM:        NewNPMClient(testHTTP()).WithBaseURL(npmSrv.URL),
+		GitHub:     NewGitHubClient(testHTTP(), "").WithBaseURLs(ghAPI.URL, "unused"),
+		Bot:        telegram.New("t", telegram.WithBaseURL(tgSrv.URL), telegram.WithHTTPClient(testHTTP())),
+		Releases:   st.Releases,
+		Posts:      st.Posts,
+	}
+
+	_, err := w.Run(context.Background())
+	if err == nil {
+		t.Fatal("expected error for inaccessible repo, got nil")
+	}
+	if !strings.Contains(err.Error(), "not accessible") {
+		t.Errorf("error should flag misconfiguration, got: %v", err)
 	}
 	if got := atomic.LoadInt32(&tgCalls); got != 0 {
 		t.Errorf("telegram calls = %d, want 0", got)

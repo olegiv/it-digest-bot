@@ -149,7 +149,39 @@ func TestFetchLatestRelease_Success(t *testing.T) {
 	}
 }
 
-func TestFetchLatestRelease_NotFound(t *testing.T) {
+// TestFetchLatestRelease_NoQualifyingRelease covers the case where the
+// repo IS accessible but has no published non-prerelease/non-draft
+// release: /releases/latest returns 404, the /repos probe returns 200.
+// Must map to ErrReleaseNotFound (defer-cleanly path).
+func TestFetchLatestRelease_NoQualifyingRelease(t *testing.T) {
+	t.Parallel()
+	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case strings.HasSuffix(r.URL.Path, "/releases/latest"):
+			w.WriteHeader(http.StatusNotFound)
+		case strings.HasSuffix(r.URL.Path, "/repos/owner/repo"):
+			fmt.Fprint(w, `{"id":1,"name":"repo","full_name":"owner/repo"}`)
+		default:
+			t.Errorf("unexpected path: %s", r.URL.Path)
+			http.NotFound(w, r)
+		}
+	}))
+	defer api.Close()
+
+	g := NewGitHubClient(testHTTP(), "").WithBaseURLs(api.URL, "unused")
+	_, err := g.FetchLatestRelease(context.Background(), "owner/repo")
+	if !errors.Is(err, ErrReleaseNotFound) {
+		t.Errorf("err = %v, want ErrReleaseNotFound", err)
+	}
+}
+
+// TestFetchLatestRelease_RepoInaccessible covers the misconfiguration
+// case: /releases/latest 404 AND /repos probe 404. This must NOT map to
+// ErrReleaseNotFound — a typo'd github_repo or revoked GITHUB_TOKEN
+// must surface as a hard error so the watcher fails loudly and the
+// systemd OnFailure notify alert fires, instead of silently deferring
+// every hour forever.
+func TestFetchLatestRelease_RepoInaccessible(t *testing.T) {
 	t.Parallel()
 	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusNotFound)
@@ -158,8 +190,14 @@ func TestFetchLatestRelease_NotFound(t *testing.T) {
 
 	g := NewGitHubClient(testHTTP(), "").WithBaseURLs(api.URL, "unused")
 	_, err := g.FetchLatestRelease(context.Background(), "owner/repo")
-	if !errors.Is(err, ErrReleaseNotFound) {
-		t.Errorf("err = %v, want ErrReleaseNotFound", err)
+	if err == nil {
+		t.Fatal("expected error for inaccessible repo, got nil")
+	}
+	if errors.Is(err, ErrReleaseNotFound) {
+		t.Errorf("inaccessible repo must NOT map to ErrReleaseNotFound, got %v", err)
+	}
+	if !strings.Contains(err.Error(), "not accessible") {
+		t.Errorf("error should mention misconfiguration, got: %v", err)
 	}
 }
 

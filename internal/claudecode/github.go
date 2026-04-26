@@ -87,6 +87,19 @@ func (g *GitHubClient) FetchLatestRelease(ctx context.Context, repo string) (*La
 	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode == http.StatusNotFound {
+		// A 404 here is ambiguous: either the repo is inaccessible
+		// (typo in github_repo config, repo deleted/renamed, missing
+		// or insufficiently scoped GITHUB_TOKEN) or the repo exists
+		// but has no qualifying release. Only the latter is a
+		// defer-cleanly path; the former is a misconfiguration that
+		// must be surfaced. Probe /repos/{repo} to disambiguate.
+		exists, probeErr := g.repoAccessible(ctx, repo)
+		if probeErr != nil {
+			return nil, fmt.Errorf("verify repo %s after /releases/latest 404: %w", repo, probeErr)
+		}
+		if !exists {
+			return nil, fmt.Errorf("github repo %s not accessible (check [claudecode].github_repo and GITHUB_TOKEN scope)", repo)
+		}
 		return nil, ErrReleaseNotFound
 	}
 	if resp.StatusCode != http.StatusOK {
@@ -118,6 +131,42 @@ func (g *GitHubClient) FetchLatestRelease(ctx context.Context, repo string) (*La
 		Body:       rel.Body,
 		ReleaseURL: rel.HTMLURL,
 	}, nil
+}
+
+// repoAccessible probes /repos/{repo} and reports whether GitHub returns
+// 200 (accessible) or 404 (not found / inaccessible). Other status codes
+// or transport failures are returned as errors so the caller can decide
+// how to treat them. Used by FetchLatestRelease to disambiguate a
+// /releases/latest 404 from a repo-level configuration failure.
+func (g *GitHubClient) repoAccessible(ctx context.Context, repo string) (bool, error) {
+	u := fmt.Sprintf("%s/repos/%s", g.apiBaseURL, repo)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+	if err != nil {
+		return false, fmt.Errorf("build repo probe: %w", err)
+	}
+	req.Header.Set("Accept", "application/vnd.github+json")
+	req.Header.Set("X-GitHub-Api-Version", "2022-11-28")
+	if g.token != "" {
+		req.Header.Set("Authorization", "Bearer "+g.token)
+	}
+
+	resp, err := g.http.Do(ctx, req)
+	if err != nil {
+		return false, fmt.Errorf("probe repo %s: %w", repo, err)
+	}
+	if resp == nil {
+		return false, fmt.Errorf("probe repo %s: nil response", repo)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	switch resp.StatusCode {
+	case http.StatusOK:
+		return true, nil
+	case http.StatusNotFound:
+		return false, nil
+	default:
+		return false, fmt.Errorf("probe repo %s: http %d", repo, resp.StatusCode)
+	}
 }
 
 // FetchReleaseNotes returns the markdown body of the GitHub release for a
