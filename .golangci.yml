@@ -24,10 +24,11 @@ linters:
         - G304
         # G404: rand/v2 is used only for retry-jitter, not cryptographic purposes.
         - G404
-        # G704: HTTP request URLs are constructed from operator-supplied
-        # config (npm package, github repo, feed URLs) — same trust
-        # boundary as G304, not attacker-controlled input.
-        - G704
+        # The gosec "URL provided to HTTP request as taint input" finding
+        # (rule ID varies across gosec versions: G107 in older releases,
+        # G704 in newer) is suppressed by path+text below — request URLs
+        # come from operator-supplied config (npm package, github repo,
+        # feed URLs), the same trust boundary as G304.
     revive:
       rules:
         - name: exported
@@ -40,6 +41,12 @@ linters:
         linters:
           - gosec
           - errcheck
+      # See gosec.excludes comment above. Match by message text so the
+      # suppression survives gosec rule-ID renumbering across versions.
+      - path: internal/httpx/client\.go
+        text: "URL provided to HTTP request as taint|Potential HTTP request made with variable url|SSRF via taint analysis"
+        linters:
+          - gosec
 
 formatters:
   enable:
