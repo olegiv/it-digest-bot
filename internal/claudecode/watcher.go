@@ -2,20 +2,19 @@ package claudecode
 
 import (
 	"context"
-	"encoding/json"
-	"errors"
-	"fmt"
 	"io"
 	"log/slog"
-	"os"
 
+	"github.com/olegiv/it-digest-bot/internal/releasewatch"
 	"github.com/olegiv/it-digest-bot/internal/store"
 	"github.com/olegiv/it-digest-bot/internal/telegram"
 )
 
-// Watcher orchestrates the full phase-1 flow: check npm → diff against
-// the store → if a new version appeared, fetch release notes, post to
-// Telegram, and record.
+// Watcher runs the Claude Code release flow as a single-source release
+// watcher pass. It is a thin convenience over releasewatch.Runner used by
+// tests and any embedder that wants to invoke the Claude Code source on
+// its own; production callers use releasewatch.Runner with multiple
+// sources.
 type Watcher struct {
 	Package    string
 	GitHubRepo string
@@ -46,103 +45,41 @@ type Result struct {
 // happened. On any error, a partial Result may be returned along with the
 // error so callers can log more detail.
 func (w *Watcher) Run(ctx context.Context) (*Result, error) {
-	log := w.logger()
-
-	info, err := w.NPM.FetchLatest(ctx, w.Package)
-	if err != nil {
-		return nil, fmt.Errorf("npm fetch: %w", err)
+	source := &Source{
+		Package:    w.Package,
+		GitHubRepo: w.GitHubRepo,
+		NPM:        w.NPM,
+		GitHub:     w.GitHub,
+		Logger:     w.Logger,
 	}
-	res := &Result{LatestVersion: info.LatestVersion}
-	log.Info("npm latest", "package", w.Package, "version", info.LatestVersion)
-
-	seen, err := w.Releases.HasSeen(ctx, w.Package, info.LatestVersion)
-	if err != nil {
-		return res, fmt.Errorf("store lookup: %w", err)
-	}
-	if seen {
-		log.Info("no new release",
-			"package", w.Package,
-			"version", info.LatestVersion)
-		return res, nil
+	runner := &releasewatch.Runner{
+		Sources:  []releasewatch.Source{source},
+		Channel:  w.Channel,
+		Bot:      w.Bot,
+		Releases: w.Releases,
+		Posts:    w.Posts,
+		Logger:   w.Logger,
+		DryRun:   w.DryRun,
+		DryOut:   w.DryOut,
 	}
 
-	// Cross-check against GitHub's "Latest release" marker before posting.
-	// npm's dist-tags.latest can flip backward (yank, dist-tag retraction) —
-	// requiring agreement with GitHub's deliberate maintainer toggle prevents
-	// announcing a version that gets demoted minutes later.
-	ghLatest, err := w.GitHub.FetchLatestRelease(ctx, w.GitHubRepo)
-	if err != nil {
-		if errors.Is(err, ErrReleaseNotFound) {
-			log.Info("github has no published latest release; deferring",
-				"package", w.Package,
-				"npm", info.LatestVersion)
-			return res, nil
+	watchRes, err := runner.Run(ctx)
+	return watcherResult(w.Package, watchRes), err
+}
+
+func watcherResult(pkg string, res *releasewatch.Result) *Result {
+	out := &Result{}
+	if res == nil {
+		return out
+	}
+	for _, item := range res.Items {
+		if item.Package != pkg {
+			continue
 		}
-		return res, fmt.Errorf("github latest: %w", err)
+		out.LatestVersion = item.Version
+		out.Posted = item.Posted
+		out.MessageID = item.MessageID
+		break
 	}
-	log.Info("github latest", "repo", w.GitHubRepo, "version", ghLatest.Version)
-
-	if ghLatest.Version != info.LatestVersion {
-		log.Info("npm and github disagree on latest; deferring post until they agree",
-			"package", w.Package,
-			"npm", info.LatestVersion,
-			"github", ghLatest.Version)
-		return res, nil
-	}
-
-	msg := FormatRelease(
-		info.LatestVersion,
-		ghLatest.Body,
-		ghLatest.ReleaseURL,
-		NPMPackageURL(w.Package),
-	)
-
-	if w.DryRun {
-		w.printDryRun(info.LatestVersion, msg, log)
-		return res, nil
-	}
-
-	msgID, err := w.Bot.SendMessage(ctx, w.Channel, msg, telegram.ParseModeMarkdownV2)
-	if err != nil {
-		return res, fmt.Errorf("telegram send: %w", err)
-	}
-	res.Posted = true
-	res.MessageID = msgID
-
-	if err := w.Releases.RecordSeen(ctx, w.Package, info.LatestVersion, msgID, ghLatest.ReleaseURL); err != nil {
-		return res, fmt.Errorf("record release: %w", err)
-	}
-
-	payload, _ := json.Marshal(map[string]any{
-		"package": w.Package,
-		"version": info.LatestVersion,
-		"url":     ghLatest.ReleaseURL,
-	})
-	if _, err := w.Posts.Record(ctx, store.KindRelease, string(payload), msgID); err != nil {
-		log.Warn("record posts_log failed", "err", err)
-	}
-
-	log.Info("posted release",
-		"package", w.Package,
-		"version", info.LatestVersion,
-		"message_id", msgID)
-	return res, nil
-}
-
-func (w *Watcher) printDryRun(version, msg string, log *slog.Logger) {
-	out := w.DryOut
-	if out == nil {
-		out = os.Stdout
-	}
-	log.Info("dry-run: rendering release message to stdout; no Telegram send, no DB writes",
-		"version", version, "bytes", len(msg))
-	_, _ = fmt.Fprintf(out, "\n---- RELEASE %s — %d bytes ----\n%s\n---- END DRY-RUN ----\n",
-		version, len(msg), msg)
-}
-
-func (w *Watcher) logger() *slog.Logger {
-	if w.Logger != nil {
-		return w.Logger
-	}
-	return slog.Default()
+	return out
 }

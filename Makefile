@@ -87,7 +87,7 @@ deps: ## Download Go module dependencies
 tidy: ## Tidy Go modules
 	$(GO) mod tidy
 
-run-watch: ## Run the watch subcommand locally
+run-watch: ## Run the release watchers locally
 	$(GO) run ./cmd/digest watch --config config.toml
 
 run-dry: ## Render a dry-run post to stdout

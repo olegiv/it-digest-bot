@@ -1,5 +1,5 @@
 [Unit]
-Description=it-digest-bot — Claude Code release watcher
+Description=it-digest-bot — release watchers
 After=network-online.target
 Wants=network-online.target
 

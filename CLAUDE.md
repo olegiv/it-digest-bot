@@ -44,7 +44,7 @@ CI (`.github/workflows`) runs build + vet + race + lint on push/PR to `main`.
 
 Two flows, each driven by its own systemd unit pair under `deploy/systemd/`:
 
-1. **`digest watch`** (hourly) — `internal/claudecode/Watcher`: query npm `dist-tags.latest` for `@anthropic-ai/claude-code` → check `(package, version)` against `releases_seen` and skip if already posted → fetch GitHub `/releases/latest` and require it to name the same version (defense against npm dist-tag rollbacks/yanks; drafts and prereleases are rejected) → render MarkdownV2 → post → record. Re-running is safe; disagreement and the already-seen case both defer cleanly with no Telegram or DB writes.
+1. **`digest watch`** (hourly) — `internal/releasewatch.Runner` executes release sources and handles the shared seen-check, dry-run, Telegram send, and audit-log flow. `internal/claudecode.Source` queries npm `dist-tags.latest` for `@anthropic-ai/claude-code`, skips already-posted `(package, version)` rows, then requires GitHub `/releases/latest` to name the same version before posting. `internal/gorelease.Source` queries `https://go.dev/dl/?mode=json` and announces every unseen stable Go version returned there. Re-running is safe; already-seen and deferred candidates do no Telegram or DB writes.
 
 2. **`digest daily`** (08:00 Europe/Zurich) — `internal/digest/Builder`: `errgroup` parallel-fetch of all `[[feed]]` entries → dedupe via `articles_seen.url_hash` (SHA-256 of canonicalized URL) → send the 24h window to Anthropic `/v1/messages` for ranking + summarization → render MarkdownV2 grouped by source → split into chunks under `telegram.MaxMessageBytes` (4096) → post each chunk → record per chunk.
 
@@ -52,7 +52,9 @@ Both flows share `internal/store` (SQLite via `modernc.org/sqlite`, no CGO), `in
 
 ### Package boundaries
 
-- `internal/claudecode` — phase 1 watcher: `npm.go`, `github.go`, `changelog.go`, `format.go`, `watcher.go`.
+- `internal/releasewatch` — shared release watcher runner: source candidates, seen checks, dry-run output, Telegram send, and post logging.
+- `internal/claudecode` — Claude Code release source/client: `npm.go`, `github.go`, `changelog.go`, `format.go`, `source.go`, `watcher.go`.
+- `internal/gorelease` — official Go stable release source/client from go.dev downloads + release history.
 - `internal/digest` — phase 2 orchestrator + `render.go` (MarkdownV2 layout + chunk splitter).
 - `internal/news` — feed fetch (`gofeed`) + canonical URL hashing.
 - `internal/llm` — `Summarizer` interface (`anthropic.go` is the prod impl, mockable in tests).
@@ -62,7 +64,7 @@ Both flows share `internal/store` (SQLite via `modernc.org/sqlite`, no CGO), `in
 
 ### Dry-run pattern
 
-Both `Watcher` and `Builder` expose `DryRun bool` + `DryOut io.Writer` fields. When `DryRun=true` they print rendered output to `DryOut` (defaults to `os.Stdout`) and skip **both** the Telegram send **and** all DB writes — making the same run repeatable. Preserve this contract when modifying either type.
+`releasewatch.Runner`, `claudecode.Watcher`, and `digest.Builder` expose `DryRun bool` + `DryOut io.Writer` fields. When `DryRun=true` they print rendered output to `DryOut` (defaults to `os.Stdout`) and skip **both** the Telegram send **and** all DB writes — making the same run repeatable. Preserve this contract when modifying them.
 
 ### URL-sanitizer contract
 

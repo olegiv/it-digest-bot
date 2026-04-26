@@ -1,5 +1,5 @@
 [Unit]
-Description=Run Claude Code release watcher every hour
+Description=Run release watchers every hour
 
 [Timer]
 OnBootSec=2min
