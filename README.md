@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/olegiv/it-digest-bot/actions/workflows/ci.yml/badge.svg)](https://github.com/olegiv/it-digest-bot/actions/workflows/ci.yml) [![CodeQL](https://github.com/olegiv/it-digest-bot/actions/workflows/github-code-scanning/codeql/badge.svg)](https://github.com/olegiv/it-digest-bot/actions/workflows/github-code-scanning/codeql)
 
-Posts Claude Code release announcements — and (phase 2) daily AI news digests — to a Telegram channel. Single static Go binary, scheduled by **systemd timers** on plain Ubuntu. No Docker, no web server, no long-running daemon.
+Posts Claude Code and Go release announcements — plus daily AI news digests — to a Telegram channel. Single static Go binary, scheduled by **systemd timers** on plain Ubuntu. No Docker, no web server, no long-running daemon.
 
 ## Architecture
 
@@ -14,8 +14,12 @@ Posts Claude Code release announcements — and (phase 2) daily AI news digests 
  │  digest watch   │ ─────────────▶  │    npm       │   dist-tags.latest
  │ (one-shot run)  │ ◀─────────────  └──────────────┘
  │                 │      HTTPS      ┌──────────────┐
- │                 │ ─────────────▶  │    GitHub    │   release notes
- │                 │ ◀─────────────  │   (API/raw)  │   (or CHANGELOG.md)
+ │                 │ ─────────────▶  │    GitHub    │   latest release
+ │                 │ ◀─────────────  │    API       │   notes
+ │                 │                 └──────────────┘
+ │                 │      HTTPS      ┌──────────────┐
+ │                 │ ─────────────▶  │    go.dev    │   stable Go releases
+ │                 │ ◀─────────────  │  dl + docs   │   + release history
  │                 │                 └──────────────┘
  │                 │      HTTPS      ┌──────────────┐
  │                 │ ─────────────▶  │   Telegram   │   sendMessage
@@ -65,7 +69,7 @@ export TELEGRAM_BOT_TOKEN=123456:AA...
 # 5. apply SQLite migrations to a local db
 ./bin/digest migrate --config config.toml
 
-# 6. do a real check against npm + GitHub + Telegram
+# 6. do a real check against npm + GitHub + go.dev + Telegram
 ./bin/digest watch --config config.toml
 ```
 
@@ -131,7 +135,7 @@ A third systemd timer handles **daily server-side backups** automatically — no
 
 | Command                 | What it does                                                       |
 |-------------------------|--------------------------------------------------------------------|
-| `digest watch`          | Check npm for a new `@anthropic-ai/claude-code` release; post it.  |
+| `digest watch`          | Check Claude Code and stable Go releases; post new versions.        |
 | `digest daily`          | Build and post the daily AI news digest via Claude.                |
 | `digest post --dry-run` | Render a sample release post to stdout without sending anything.   |
 | `digest migrate`        | Apply pending SQLite schema migrations.                            |
@@ -157,6 +161,8 @@ All non-secret settings live in `config.toml`. See [`config.example.toml`](./con
 | `[log]`           | `format`       | no       | `json`                   | `json` / `text` |
 | `[[feed]]`        | `name`, `url`  | phase 2  | —                        | One block per feed |
 
+Go release monitoring has no TOML settings; `digest watch` reads official stable releases from `https://go.dev/dl/?mode=json`.
+
 Secrets come from the environment only (never the TOML):
 
 | Env var                | Required? | Purpose |
@@ -167,7 +173,7 @@ Secrets come from the environment only (never the TOML):
 
 ## Roadmap
 
-- [x] **Phase 1** — Claude Code release watcher (npm → GitHub/CHANGELOG → Telegram).
+- [x] **Phase 1** — Release watchers (Claude Code via npm/GitHub, Go via go.dev → Telegram).
 - [x] **Phase 2** — Daily AI digest (RSS aggregation → Claude summarization → Telegram).
 
 Both phases are fully implemented. The `daily` command fetches all configured feeds in parallel, dedupes against `articles_seen`, sends the 24h window to Claude via `POST /v1/messages` for ranking/summarization, renders a MarkdownV2 post grouped by source, and splits into chunks under Telegram's 4096-byte cap if needed.

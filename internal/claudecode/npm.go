@@ -1,7 +1,8 @@
-// Package claudecode implements the phase-1 Claude Code release watcher:
-// poll npm for the latest version of @anthropic-ai/claude-code, fetch
-// release notes from GitHub (with a CHANGELOG fallback), format a
-// MarkdownV2 announcement, and post it to Telegram.
+// Package claudecode implements the Claude Code release source: poll npm
+// for the latest version of @anthropic-ai/claude-code, cross-check against
+// GitHub's "Latest release" marker, fetch release notes from GitHub (with a
+// CHANGELOG fallback), and format a MarkdownV2 announcement for the shared
+// releasewatch runner.
 package claudecode
 
 import (

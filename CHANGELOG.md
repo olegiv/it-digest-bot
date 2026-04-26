@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning 2.0.0](https://semver.org/spec/
 
 ## [Unreleased]
 
+### Added
+
+- `digest watch` now also monitors official stable Go releases from
+  `go.dev/dl/?mode=json`, posts one announcement per unseen Go version, and
+  includes release-history text when available.
+
+### Changed
+
+- Release posting now uses a shared `internal/releasewatch` runner for common
+  seen-check, dry-run, Telegram send, and audit-log behavior across sources.
+
 ### Fixed
 
 - `digest watch` no longer re-posts a release that's already in

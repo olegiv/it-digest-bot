@@ -35,7 +35,7 @@ func run() int {
 
 	root := &cobra.Command{
 		Use:           "digest",
-		Short:         "it-digest-bot — Claude Code release + AI news poster",
+		Short:         "it-digest-bot — release watcher + AI news poster",
 		SilenceUsage:  true,
 		SilenceErrors: true,
 		Version:       version.String(),
