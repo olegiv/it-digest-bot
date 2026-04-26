@@ -34,7 +34,7 @@ if [[ ! -x $BINARY ]]; then
 error: $BINARY is missing or not executable.
 
 Build it on your dev box with:
-    make build-linux
+    make build-linux-amd64
 
 then copy it to the server:
     scp bin/digest-linux-amd64 root@srv_prod:$BINARY

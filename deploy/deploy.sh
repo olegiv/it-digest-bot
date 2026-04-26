@@ -31,7 +31,7 @@ else
 fi
 
 echo "==> Building $LOCAL_BIN"
-make build-linux
+make build-linux-amd64
 
 echo "==> Preserving current $REMOTE_BIN as ${REMOTE_BIN}.prev (if present)"
 ssh "$HOST" "if [[ -x $REMOTE_BIN ]]; then cp -p $REMOTE_BIN ${REMOTE_BIN}.prev; fi"
@@ -40,7 +40,7 @@ echo "==> Copying to $HOST:$REMOTE_BIN"
 scp "$LOCAL_BIN" "$HOST:$REMOTE_BIN"
 
 echo "==> chmod + version check"
-ssh "$HOST" "chmod 755 $REMOTE_BIN && $REMOTE_BIN version"
+ssh "$HOST" "chmod 755 $REMOTE_BIN && $REMOTE_BIN -version"
 
 cat <<EOF
 

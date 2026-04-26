@@ -26,6 +26,11 @@ func main() {
 }
 
 func run() int {
+	if rootVersionFlagRequested(os.Args) {
+		fmt.Println(version.String())
+		return 0
+	}
+
 	flags := &rootFlags{}
 
 	root := &cobra.Command{
@@ -59,6 +64,10 @@ func run() int {
 		return 1
 	}
 	return 0
+}
+
+func rootVersionFlagRequested(args []string) bool {
+	return len(args) == 2 && (args[1] == "-version" || args[1] == "-v")
 }
 
 // loadConfigAndLogger reads the config, installs slog with the configured
