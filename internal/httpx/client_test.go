@@ -27,6 +27,9 @@ func TestDoSuccessFirstTry(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Do: %v", err)
 	}
+	if resp == nil {
+		t.Fatal("Do returned nil response")
+	}
 	defer resp.Body.Close()
 	b, _ := io.ReadAll(resp.Body)
 	if string(b) != "ok" {
@@ -52,6 +55,9 @@ func TestDoRetriesOn500ThenSucceeds(t *testing.T) {
 	resp, err := c.Do(context.Background(), req)
 	if err != nil {
 		t.Fatalf("Do: %v", err)
+	}
+	if resp == nil {
+		t.Fatal("Do returned nil response")
 	}
 	defer resp.Body.Close()
 	if atomic.LoadInt32(&calls) != 3 {
@@ -97,6 +103,9 @@ func TestDoNoRetryOn404(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Do: %v", err)
 	}
+	if resp == nil {
+		t.Fatal("Do returned nil response")
+	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusNotFound {
 		t.Errorf("status = %d", resp.StatusCode)
@@ -120,6 +129,9 @@ func TestDoSetsUserAgent(t *testing.T) {
 	resp, err := c.Do(context.Background(), req)
 	if err != nil {
 		t.Fatalf("Do: %v", err)
+	}
+	if resp == nil {
+		t.Fatal("Do returned nil response")
 	}
 	_ = resp.Body.Close()
 	if gotUA != "test-agent/1.0" {

@@ -23,6 +23,27 @@ type Release struct {
 // ErrNotFound is returned when a lookup finds no matching row.
 var ErrNotFound = errors.New("not found")
 
+// HasSeen reports whether (package, version) is already recorded in
+// releases_seen. This is the correct guard for the watcher's "have we
+// already posted this version?" check — unlike GetLatestSeen, it is not
+// fooled by a more recent row for a different version (which happens
+// when npm's `latest` dist-tag rolls back to a version that was
+// previously published, e.g. after a yank).
+func (r *Releases) HasSeen(ctx context.Context, pkg, version string) (bool, error) {
+	var one int
+	err := r.db.QueryRowContext(ctx, `
+        SELECT 1
+          FROM releases_seen
+         WHERE package = ? AND version = ?`, pkg, version).Scan(&one)
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, nil
+	}
+	if err != nil {
+		return false, fmt.Errorf("query releases_seen: %w", err)
+	}
+	return true, nil
+}
+
 // GetLatestSeen returns the most recently recorded version for the given
 // package. Returns ErrNotFound if no rows exist.
 func (r *Releases) GetLatestSeen(ctx context.Context, pkg string) (*Release, error) {

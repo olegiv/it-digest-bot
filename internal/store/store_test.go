@@ -120,6 +120,54 @@ func TestReleasesLifecycle(t *testing.T) {
 	}
 }
 
+func TestReleasesHasSeen(t *testing.T) {
+	t.Parallel()
+	s := openMemory(t)
+	ctx := context.Background()
+	pkg := "@anthropic-ai/claude-code"
+
+	has, err := s.Releases.HasSeen(ctx, pkg, "2.1.119")
+	if err != nil {
+		t.Fatalf("HasSeen on empty: %v", err)
+	}
+	if has {
+		t.Error("HasSeen returned true for empty table")
+	}
+
+	if err := s.Releases.RecordSeen(ctx, pkg, "2.1.119", 1, ""); err != nil {
+		t.Fatalf("RecordSeen: %v", err)
+	}
+
+	has, err = s.Releases.HasSeen(ctx, pkg, "2.1.119")
+	if err != nil {
+		t.Fatalf("HasSeen recorded: %v", err)
+	}
+	if !has {
+		t.Error("HasSeen returned false for recorded version")
+	}
+
+	// A newer row for a different version must not mask the older one:
+	// HasSeen looks up by (package, version), not "most recent".
+	if err := s.Releases.RecordSeen(ctx, pkg, "2.1.120", 2, ""); err != nil {
+		t.Fatalf("RecordSeen 2: %v", err)
+	}
+	has, err = s.Releases.HasSeen(ctx, pkg, "2.1.119")
+	if err != nil {
+		t.Fatalf("HasSeen older: %v", err)
+	}
+	if !has {
+		t.Error("HasSeen returned false for older version after a newer one was recorded")
+	}
+
+	has, err = s.Releases.HasSeen(ctx, pkg, "2.1.121")
+	if err != nil {
+		t.Fatalf("HasSeen unknown: %v", err)
+	}
+	if has {
+		t.Error("HasSeen returned true for unrecorded version")
+	}
+}
+
 func TestArticlesSeenRoundtrip(t *testing.T) {
 	t.Parallel()
 	s := openMemory(t)

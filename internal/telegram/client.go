@@ -22,6 +22,10 @@ import (
 // for multi-byte content).
 const MaxMessageBytes = 4096
 
+// maxResponseBody caps the bytes read from a /sendMessage response.
+// Defense-in-depth — Bot API responses are typically <1 KB.
+const maxResponseBody = 1 << 20
+
 // ParseMode is the Telegram Bot API "parse_mode" parameter.
 type ParseMode string
 
@@ -122,11 +126,17 @@ func (b *Bot) SendMessage(ctx context.Context, chat, text string, mode ParseMode
 	if err != nil {
 		return 0, fmt.Errorf("send to telegram: %w", err)
 	}
+	if resp == nil {
+		return 0, fmt.Errorf("send to telegram: nil response")
+	}
 	defer func() { _ = resp.Body.Close() }()
 
-	buf, err := io.ReadAll(resp.Body)
+	buf, err := io.ReadAll(io.LimitReader(resp.Body, maxResponseBody+1))
 	if err != nil {
 		return 0, fmt.Errorf("read telegram response: %w", err)
+	}
+	if int64(len(buf)) > maxResponseBody {
+		return 0, fmt.Errorf("telegram response exceeds %d bytes", maxResponseBody)
 	}
 
 	var tgResp apiResponse[messageResult]

@@ -64,7 +64,13 @@ func TestRenderGroupsBySource(t *testing.T) {
 		{SourceIndex: 1, Headline: "h2", Blurb: "b2"},
 		{SourceIndex: 2, Headline: "h3", Blurb: "b3"},
 	}
-	msgs, _ := RenderAndSplit(testDate, items, summaries, 4096, nil)
+	msgs, err := RenderAndSplit(testDate, items, summaries, 4096, nil)
+	if err != nil {
+		t.Fatalf("RenderAndSplit: %v", err)
+	}
+	if len(msgs) == 0 {
+		t.Fatal("RenderAndSplit returned no messages")
+	}
 	text := msgs[0].Text
 
 	aIdx := strings.Index(text, "*A*")
@@ -136,6 +142,9 @@ func TestRenderSkipsInvalidSummaryIndex(t *testing.T) {
 	msgs, err := RenderAndSplit(testDate, items, summaries, 4096, nil)
 	if err != nil {
 		t.Fatalf("RenderAndSplit: %v", err)
+	}
+	if len(msgs) == 0 {
+		t.Fatal("RenderAndSplit returned no messages")
 	}
 	if strings.Contains(msgs[0].Text, "should be skipped") {
 		t.Errorf("invalid summary index was rendered:\n%s", msgs[0].Text)

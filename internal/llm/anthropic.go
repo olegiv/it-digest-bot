@@ -15,6 +15,12 @@ import (
 	"github.com/olegiv/it-digest-bot/internal/strs"
 )
 
+// maxResponseBody caps the bytes read from Anthropic's /v1/messages
+// response. Defense-in-depth against a misbehaving upstream; 4 MiB is
+// well above the largest plausible response (max_tokens=1024 produces
+// ~6 KB JSON in practice).
+const maxResponseBody = 4 << 20
+
 // AnthropicClient calls POST /v1/messages directly (no SDK) as specified.
 //
 // The daily digest runs once every 24h, so neither the 5-minute nor the
@@ -181,11 +187,17 @@ func (c *AnthropicClient) Summarize(ctx context.Context, req SummarizeRequest) (
 	if err != nil {
 		return nil, fmt.Errorf("call /v1/messages: %w", err)
 	}
+	if resp == nil {
+		return nil, fmt.Errorf("call /v1/messages: nil response")
+	}
 	defer func() { _ = resp.Body.Close() }()
 
-	buf, err := io.ReadAll(resp.Body)
+	buf, err := io.ReadAll(io.LimitReader(resp.Body, maxResponseBody+1))
 	if err != nil {
 		return nil, fmt.Errorf("read response: %w", err)
+	}
+	if int64(len(buf)) > maxResponseBody {
+		return nil, fmt.Errorf("anthropic response exceeds %d bytes", maxResponseBody)
 	}
 
 	var apiResp anthropicResponse
