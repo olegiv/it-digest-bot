@@ -29,7 +29,7 @@ fi
 mv ${REMOTE_BIN} ${REMOTE_BIN}.failed
 mv ${REMOTE_BIN}.prev ${REMOTE_BIN}
 echo 'rolled back:'
-${REMOTE_BIN} -version
+${REMOTE_BIN} version
 REMOTE
 
 cat <<EOF
