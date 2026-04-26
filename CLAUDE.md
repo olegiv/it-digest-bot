@@ -5,13 +5,26 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Common commands
 
 ```bash
-make build         # CGO_ENABLED=0 build to bin/digest
-make build-linux   # static linux/amd64 build for production deploy
+make help          # show Makefile targets
+make all           # build the default local/dev binary
+make build         # fast local/dev build to bin/digest
+make build-prod    # optimized host production build to bin/digest
+make build-linux-amd64  # optimized static linux/amd64 production build
+make build-darwin-arm64 # optimized darwin/arm64 production build
+make build-all-platforms # linux/amd64 + darwin/arm64 production builds
 make test          # go test ./...
 make test-race     # go test -race ./...
-make lint          # golangci-lint run ./... (config: .golangci.yml)
+make coverage      # go test -cover ./...
+make coverage-html # write coverage.out + coverage.html
 make fmt           # gofumpt -w .
-make install-tools # install golangci-lint v1.64.6 + gofumpt v0.7.0 (pinned)
+make fmt-check     # fail if gofumpt would reformat files
+make vet           # go vet ./...
+make lint-go       # golangci-lint run ./... (config: .golangci.yml)
+make lint          # run all linters
+make check         # fmt-check + vet + lint + test
+make deps          # go mod download
+make tidy          # go mod tidy
+make install-tools # install golangci-lint v2.11.4 + gofumpt v0.9.2 (pinned)
 make run-watch     # go run ./cmd/digest watch --config config.toml
 make run-dry       # render a fake release post to stdout (no network)
 ```

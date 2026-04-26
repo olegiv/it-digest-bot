@@ -51,6 +51,28 @@ func TestSmokePostDryRun(t *testing.T) {
 	}
 }
 
+func TestRootVersionFlagRequested(t *testing.T) {
+	for _, args := range [][]string{
+		{"digest", "-version"},
+		{"digest", "-v"},
+	} {
+		if !rootVersionFlagRequested(args) {
+			t.Fatalf("rootVersionFlagRequested(%v) = false, want true", args)
+		}
+	}
+
+	for _, args := range [][]string{
+		{"digest"},
+		{"digest", "--version"},
+		{"digest", "version"},
+		{"digest", "watch", "-version"},
+	} {
+		if rootVersionFlagRequested(args) {
+			t.Fatalf("rootVersionFlagRequested(%v) = true, want false", args)
+		}
+	}
+}
+
 // findRepoRoot walks up from this test file's directory until it finds
 // go.mod, returning that directory.
 func findRepoRoot(t *testing.T) string {

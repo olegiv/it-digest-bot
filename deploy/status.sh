@@ -18,7 +18,7 @@ ssh "$HOST" 'systemctl list-timers --no-pager "it-digest-*"'
 
 echo ""
 echo "==> Binary version"
-ssh "$HOST" '/usr/local/bin/digest version'
+ssh "$HOST" '/usr/local/bin/digest -version'
 
 echo ""
 echo "==> Recent journal (last 20 lines, both services)"

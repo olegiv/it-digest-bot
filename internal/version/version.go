@@ -17,7 +17,7 @@ func UserAgent() string {
 	return "it-digest-bot/" + Version + " (+https://github.com/olegiv/it-digest-bot)"
 }
 
-// String returns a compact one-line summary for `digest version`.
+// String returns a compact one-line summary for `digest -version`.
 func String() string {
 	return "it-digest-bot " + Version + " (" + Commit + ", built " + Date + ")"
 }

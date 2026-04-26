@@ -73,7 +73,7 @@ export TELEGRAM_BOT_TOKEN=123456:AA...
 
 ```bash
 # On your dev machine
-make build-linux
+make build-linux-amd64
 scp bin/digest-linux-amd64 root@srv_prod:/usr/local/bin/digest
 ssh root@srv_prod chmod 755 /usr/local/bin/digest
 
@@ -136,7 +136,7 @@ A third systemd timer handles **daily server-side backups** automatically — no
 | `digest post --dry-run` | Render a sample release post to stdout without sending anything.   |
 | `digest migrate`        | Apply pending SQLite schema migrations.                            |
 | `digest config-check`   | Load and fully validate the config + env; exit nonzero on error.   |
-| `digest version`        | Print version, commit, and build date.                             |
+| `digest -version`       | Print version, commit, and build date.                             |
 
 All subcommands accept `--config <path>` (default: `config.toml`).
 
@@ -177,10 +177,22 @@ See [CHANGELOG.md](./CHANGELOG.md) for release notes.
 ## Development
 
 ```bash
+make help            # list Makefile targets
+make all             # build the default local/dev binary
+make build           # fast local/dev build
+make build-prod      # optimized host production build
+make build-linux-amd64  # optimized static linux/amd64 production build
+make build-darwin-arm64 # optimized darwin/arm64 production build
+make build-all-platforms # linux/amd64 + darwin/arm64 production builds
 make install-tools   # golangci-lint + gofumpt at pinned versions
 make test            # go test ./...
 make test-race       # with -race
+make coverage        # go test -cover ./...
+make coverage-html   # write coverage.out + coverage.html
 make lint            # golangci-lint
+make check           # fmt-check + vet + lint + test
+make deps            # go mod download
+make tidy            # go mod tidy
 make fmt             # gofumpt -w .
 ```
 
@@ -201,7 +213,7 @@ Test coverage targets (spec): ≥ 70% on `internal/claudecode`, `internal/telegr
 
 PRs welcome. Before opening one:
 
-1. `make lint` and `make test-race` must pass.
+1. `make check` and `make test-race` must pass.
 2. Keep commits logically scoped (one concern per commit).
 3. No `fmt.Println` or `log.Printf` — use `log/slog`.
 4. Errors wrapped with `fmt.Errorf("...: %w", err)` — never bare.
