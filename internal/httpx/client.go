@@ -110,9 +110,12 @@ func New(opts ...Option) *Client {
 // the response body on success.
 //
 // Transient conditions: network errors, 429, 5xx. A Retry-After header (if
-// present and parseable) overrides the jittered exponential backoff.
-// The request body is *not* retried; callers needing retry on POSTs must
-// pass a GetBody-enabled *http.Request.
+// present and parseable) overrides the jittered exponential backoff. On a
+// retry, the request body is refreshed via req.GetBody (which net/http sets
+// automatically for bytes.Buffer / bytes.Reader / strings.Reader bodies).
+// If the request has no GetBody — e.g. a streaming body the caller built
+// manually — retries are skipped on POST/PUT/PATCH and we return the last
+// error to avoid sending a half-consumed body.
 func (c *Client) Do(ctx context.Context, req *http.Request) (*http.Response, error) {
 	if req.Header.Get("User-Agent") == "" {
 		req.Header.Set("User-Agent", c.userAgent)
@@ -122,6 +125,19 @@ func (c *Client) Do(ctx context.Context, req *http.Request) (*http.Response, err
 	var lastErr error
 	for attempt := 0; attempt <= c.maxRetries; attempt++ {
 		if attempt > 0 {
+			if req.Body != nil {
+				if req.GetBody == nil {
+					// Cannot safely re-send a half-consumed body; bail out
+					// with the previous error so the wrapped retry-exhaust
+					// path still returns through urlSanitizer below.
+					break
+				}
+				body, err := req.GetBody()
+				if err != nil {
+					return nil, fmt.Errorf("refresh request body for retry: %w", err)
+				}
+				req.Body = body
+			}
 			delay := backoff(attempt, c.baseDelay)
 			if ra := retryAfter(lastResp(lastErr)); ra > 0 {
 				delay = ra
