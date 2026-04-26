@@ -93,8 +93,15 @@ func (g *GitHubClient) FetchLatestRelease(ctx context.Context, repo string) (*La
 		return nil, fmt.Errorf("github latest %s: http %d", repo, resp.StatusCode)
 	}
 
+	body, err := io.ReadAll(io.LimitReader(resp.Body, maxAPIBody+1))
+	if err != nil {
+		return nil, fmt.Errorf("read github latest: %w", err)
+	}
+	if int64(len(body)) > maxAPIBody {
+		return nil, fmt.Errorf("github latest %s: response exceeds %d bytes", repo, maxAPIBody)
+	}
 	var rel ghRelease
-	if err := json.NewDecoder(resp.Body).Decode(&rel); err != nil {
+	if err := json.Unmarshal(body, &rel); err != nil {
 		return nil, fmt.Errorf("decode github latest: %w", err)
 	}
 	if rel.TagName == "" {
@@ -175,8 +182,15 @@ func (g *GitHubClient) fetchRelease(ctx context.Context, repo, tag string) (*Rel
 		return nil, fmt.Errorf("github release %s %s: http %d", repo, tag, resp.StatusCode)
 	}
 
+	body, err := io.ReadAll(io.LimitReader(resp.Body, maxAPIBody+1))
+	if err != nil {
+		return nil, fmt.Errorf("read github release: %w", err)
+	}
+	if int64(len(body)) > maxAPIBody {
+		return nil, fmt.Errorf("github release %s %s: response exceeds %d bytes", repo, tag, maxAPIBody)
+	}
 	var rel ghRelease
-	if err := json.NewDecoder(resp.Body).Decode(&rel); err != nil {
+	if err := json.Unmarshal(body, &rel); err != nil {
 		return nil, fmt.Errorf("decode github release: %w", err)
 	}
 	return &ReleaseNotes{Body: rel.Body, ReleaseURL: rel.HTMLURL}, nil
@@ -203,9 +217,12 @@ func (g *GitHubClient) fetchChangelog(ctx context.Context, repo, version string)
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("changelog %s: http %d", repo, resp.StatusCode)
 	}
-	b, err := io.ReadAll(resp.Body)
+	b, err := io.ReadAll(io.LimitReader(resp.Body, maxAPIBody+1))
 	if err != nil {
 		return nil, fmt.Errorf("read changelog: %w", err)
+	}
+	if int64(len(b)) > maxAPIBody {
+		return nil, fmt.Errorf("changelog %s: response exceeds %d bytes", repo, maxAPIBody)
 	}
 	body := extractChangelogSection(string(b), version)
 	if body == "" {

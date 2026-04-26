@@ -13,6 +13,13 @@ import (
 // header + footer lines under Telegram's 4096 hard cap.
 const MaxNotesBody = 3500
 
+// maxAPIBody caps the bytes read from any single npm/GitHub API response.
+// All callers hit fixed trusted endpoints, so this is defense-in-depth
+// against a misbehaving upstream rather than an attacker. 4 MiB is well
+// above the largest observed payload (npm metadata ~80 KB, GitHub release
+// notes ~50 KB).
+const maxAPIBody = 4 << 20
+
 // FormatRelease renders the MarkdownV2 announcement from the template in
 // the spec. `version` and `releaseURL` are trusted dynamic values,
 // `notesBody` is the raw GitHub/CHANGELOG markdown (possibly with links,

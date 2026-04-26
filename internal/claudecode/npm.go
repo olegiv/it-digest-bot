@@ -69,8 +69,15 @@ func (c *NPMClient) FetchLatest(ctx context.Context, pkg string) (*PackageInfo, 
 		return nil, fmt.Errorf("npm %s: http %d", pkg, resp.StatusCode)
 	}
 
+	body, err := io.ReadAll(io.LimitReader(resp.Body, maxAPIBody+1))
+	if err != nil {
+		return nil, fmt.Errorf("read npm response: %w", err)
+	}
+	if int64(len(body)) > maxAPIBody {
+		return nil, fmt.Errorf("npm %s: response exceeds %d bytes", pkg, maxAPIBody)
+	}
 	var payload npmPayload
-	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
+	if err := json.Unmarshal(body, &payload); err != nil {
 		return nil, fmt.Errorf("decode npm response: %w", err)
 	}
 
