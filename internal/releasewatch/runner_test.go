@@ -216,6 +216,90 @@ func TestRunnerDefersCleanly(t *testing.T) {
 	}
 }
 
+func TestRunnerContinuesAfterSourceError(t *testing.T) {
+	t.Parallel()
+
+	st := openStore(t)
+	bot := &fakeSender{}
+	r := &Runner{
+		Sources: []Source{
+			fakeSource{name: "broken", err: errors.New("boom")},
+			fakeSource{name: "healthy", candidates: []Candidate{candidate("healthy", "pkg", "1.0.0")}},
+		},
+		Channel:  "@ch",
+		Bot:      bot,
+		Releases: st.Releases,
+		Posts:    st.Posts,
+	}
+
+	res, err := r.Run(context.Background())
+	if err == nil {
+		t.Fatal("expected source error")
+	}
+	if !strings.Contains(err.Error(), "source broken candidates: boom") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if res.PostedCount() != 1 {
+		t.Fatalf("posted count = %d, want 1", res.PostedCount())
+	}
+	if bot.calls != 1 {
+		t.Fatalf("telegram calls = %d, want 1", bot.calls)
+	}
+	seen, err := st.Releases.HasSeen(context.Background(), "pkg", "1.0.0")
+	if err != nil {
+		t.Fatalf("HasSeen: %v", err)
+	}
+	if !seen {
+		t.Error("healthy source release was not recorded")
+	}
+}
+
+func TestRunnerContinuesAfterCandidateError(t *testing.T) {
+	t.Parallel()
+
+	st := openStore(t)
+	bot := &fakeSender{}
+	broken := Candidate{
+		Source:  "broken",
+		Package: "pkg-broken",
+		Version: "1.0.0",
+		Render: func(context.Context) (*Announcement, error) {
+			return nil, errors.New("render boom")
+		},
+	}
+	r := &Runner{
+		Sources: []Source{
+			fakeSource{name: "broken", candidates: []Candidate{broken}},
+			fakeSource{name: "healthy", candidates: []Candidate{candidate("healthy", "pkg", "1.0.0")}},
+		},
+		Channel:  "@ch",
+		Bot:      bot,
+		Releases: st.Releases,
+		Posts:    st.Posts,
+	}
+
+	res, err := r.Run(context.Background())
+	if err == nil {
+		t.Fatal("expected candidate error")
+	}
+	if !strings.Contains(err.Error(), "render release pkg-broken 1.0.0: render boom") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if res.PostedCount() != 1 {
+		t.Fatalf("posted count = %d, want 1", res.PostedCount())
+	}
+	if bot.calls != 1 {
+		t.Fatalf("telegram calls = %d, want 1", bot.calls)
+	}
+	seen, err := st.Releases.HasSeen(context.Background(), "pkg", "1.0.0")
+	if err != nil {
+		t.Fatalf("HasSeen: %v", err)
+	}
+	if !seen {
+		t.Error("healthy source release was not recorded")
+	}
+}
+
 func TestRunnerReturnsSourceErrors(t *testing.T) {
 	t.Parallel()
 

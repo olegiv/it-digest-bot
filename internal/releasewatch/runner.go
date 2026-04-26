@@ -119,6 +119,7 @@ func (r *Result) PostedCount() int {
 func (r *Runner) Run(ctx context.Context) (*Result, error) {
 	log := r.logger()
 	res := &Result{}
+	var errs []error
 
 	for _, source := range r.Sources {
 		if source == nil {
@@ -127,7 +128,8 @@ func (r *Runner) Run(ctx context.Context) (*Result, error) {
 		sourceName := source.Name()
 		candidates, err := source.Candidates(ctx)
 		if err != nil {
-			return res, fmt.Errorf("source %s candidates: %w", sourceName, err)
+			errs = append(errs, fmt.Errorf("source %s candidates: %w", sourceName, err))
+			continue
 		}
 		if len(candidates) == 0 {
 			log.Info("no release candidates", "source", sourceName)
@@ -140,12 +142,13 @@ func (r *Runner) Run(ctx context.Context) (*Result, error) {
 			item, err := r.handleCandidate(ctx, cand, log)
 			res.Items = append(res.Items, item)
 			if err != nil {
-				return res, err
+				errs = append(errs, err)
+				continue
 			}
 		}
 	}
 
-	return res, nil
+	return res, errors.Join(errs...)
 }
 
 func (r *Runner) handleCandidate(ctx context.Context, cand Candidate, log *slog.Logger) (ItemResult, error) {
