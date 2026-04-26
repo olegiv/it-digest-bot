@@ -7,32 +7,81 @@ and this project adheres to [Semantic Versioning 2.0.0](https://semver.org/spec/
 
 ## [Unreleased]
 
+## [0.2.0] — 2026-04-27
+
 ### Added
 
-- `digest watch` now also monitors official stable Go releases from
-  `go.dev/dl/?mode=json`, posts one announcement per unseen Go version, and
-  includes release-history text when available.
+#### `digest watch`
+
+- Now also monitors official stable Go releases from
+  `go.dev/dl/?mode=json`, posts one announcement per unseen Go
+  version, and includes release-history text when available.
 
 ### Changed
 
-- Release posting now uses a shared `internal/releasewatch` runner for common
-  seen-check, dry-run, Telegram send, and audit-log behavior across sources.
+#### Release watcher
+
+- Release posting now uses a shared `internal/releasewatch` runner
+  for common seen-check, dry-run, Telegram send, and audit-log
+  behavior across sources.
+
+#### Daily digest
+
+- `digest daily` now caps the number of items per source so a
+  big-news day on one provider does not bury lower-traffic feeds.
+  Default cap is 2; configurable via `digest.max_per_source`
+  (negative value disables).
+
+#### Toolchain
+
+- Go updated to `1.26.2` and `modernc.org/sqlite` to `v1.50.0`.
+  `govulncheck` reports clean. No schema or behavior change for
+  operators.
 
 ### Fixed
 
-- `digest watch` no longer re-posts a release that's already in
-  `releases_seen` after npm's `dist-tags.latest` rolls back. The
-  duplicate-detection check now looks up `(package, version)` directly
-  via `Releases.HasSeen` instead of comparing against the
-  most-recently-posted row, which could be a different (newer) version
-  than the one npm currently considers latest.
-- `digest watch` now requires npm `dist-tags.latest` and GitHub
-  `/releases/latest` to name the same version before posting. A
-  short-lived npm publish that gets demoted (or never gets a
-  corresponding GitHub Release) no longer triggers a Telegram
-  announcement; the bot defers silently until both signals agree.
-  Draft and prerelease responses from GitHub are rejected as
-  defense-in-depth, even though the endpoint already filters them.
+#### `digest watch`
+
+- No longer re-posts a release that is already in `releases_seen`
+  after npm's `dist-tags.latest` rolls back. The duplicate-detection
+  check now looks up `(package, version)` directly via
+  `Releases.HasSeen` instead of comparing against the
+  most-recently-posted row, which could be a different (newer)
+  version than the one npm currently considers latest.
+- Now requires npm `dist-tags.latest` and GitHub `/releases/latest`
+  to name the same version before posting. A short-lived npm publish
+  that gets demoted (or never gets a corresponding GitHub Release)
+  no longer triggers a Telegram announcement; the bot defers
+  silently until both signals agree. Draft and prerelease responses
+  from GitHub are rejected as defense-in-depth, even though the
+  endpoint already filters them.
+- A GitHub `/releases/latest` 404 against an inaccessible repository
+  (private, deleted, renamed, or `GITHUB_TOKEN` revoked) is now
+  surfaced as a hard error so the systemd `OnFailure=` notify alert
+  fires. Previously a typo'd `github_repo` would silently disable
+  release announcements forever. The legitimate "no qualifying
+  release yet" 404 still defers cleanly.
+
+#### HTTP retry
+
+- POST/PUT requests with seekable bodies now refresh their body via
+  `Request.GetBody` on retry. Previously a transport-level retry
+  could replay an exhausted body and fail with
+  `http: ContentLength=N with Body length 0` — and that error path
+  leaked the raw URL, including Telegram bot tokens, past the
+  `telegram.SanitizeURL` mask.
+
+### Security
+
+#### HTTP client
+
+- Closes LOW-001 from the 2026-04-26 audit. Six trusted-API clients
+  (npm, GitHub releases, Anthropic `/v1/messages`, Telegram
+  `sendMessage`) now read upstream JSON through `io.LimitReader`
+  with explicit post-read size checks: 4 MiB for
+  npm/GitHub/Anthropic, 1 MiB for Telegram. The 30 s `httpx`
+  timeout already bounds time; this bounds bytes against a
+  misbehaving upstream.
 
 ## [0.1.0] — 2026-04-19
 
@@ -100,5 +149,6 @@ Initial public release.
 - Full local security audit, all actionable findings (1 HIGH, 4 MEDIUM, 4 LOW)
   closed in source before the initial release.
 
-[Unreleased]: https://github.com/olegiv/it-digest-bot/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/olegiv/it-digest-bot/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/olegiv/it-digest-bot/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/olegiv/it-digest-bot/releases/tag/v0.1.0
