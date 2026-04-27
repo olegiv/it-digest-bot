@@ -3,6 +3,9 @@ Description=it-digest-bot — release watchers
 After=network-online.target
 Wants=network-online.target
 
+# Post a Telegram alert on nonzero exit (see it-digest-notify@.service).
+OnFailure=it-digest-notify@%N.service
+
 [Service]
 Type=oneshot
 User=it-digest
@@ -11,9 +14,6 @@ EnvironmentFile=/etc/it-digest/env
 ExecStart=/usr/local/bin/digest watch --config /etc/it-digest/config.toml
 StandardOutput=journal
 StandardError=journal
-
-# Post a Telegram alert on nonzero exit (see it-digest-notify@.service).
-OnFailure=it-digest-notify@%N.service
 
 # Hardening
 NoNewPrivileges=true
