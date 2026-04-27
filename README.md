@@ -113,7 +113,7 @@ Once the server is bootstrapped, five ops helpers live in `deploy/` and are also
 
 | Makefile | Script | What it does |
 |---|---|---|
-| `make deploy` | `deploy/deploy.sh` | Run race tests (skip with `SKIP_TESTS=1`), build `bin/digest-linux-amd64`, preserve the current binary as `digest.prev`, scp the new one to `/usr/local/bin/digest`, chmod. Next timer fire uses the new binary. |
+| `make deploy` | `deploy/deploy.sh` | Run race tests (skip with `SKIP_TESTS=1`), build + scp `bin/digest-linux-amd64` to `/usr/local/bin/digest` (preserving the previous binary as `.prev`). Then rsync `deploy/systemd/` to `/etc/systemd/system/` — if any unit changed, `daemon-reload`; if any timer changed, restart it so the new schedule takes effect. Next timer fire uses the new binary and units. |
 | `make rollback` | `deploy/rollback.sh` | Swap `digest` ↔ `digest.prev` to revert a bad deploy. The failed binary is kept as `digest.failed` for inspection. |
 | `make backup` | `deploy/backup.sh` | `sqlite3 .backup` snapshot of `/var/lib/it-digest/state.db` → local `backups/state-<UTC-stamp>.db`. Requires `sqlite3` on the server. |
 | `make status` | `deploy/status.sh` | `systemctl list-timers` + binary version + last 20 journal lines for both services. |
