@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning 2.0.0](https://semver.org/spec/
 
 ## [Unreleased]
 
+### Fixed
+
+#### Daily SQLite backup
+
+- `it-digest-backup.service` no longer fails with
+  `unable to open database file`. SQLite's WAL mode mmaps a
+  `-shm` sidecar in the database directory even on read-only
+  opens, and the unit's `ReadOnlyPaths=/var/lib/it-digest`
+  blocked that. Switched to `ReadWritePaths`; the script still
+  uses `sqlite3 -readonly` so the source DB is never mutated,
+  and the unit still runs as the dedicated `it-digest` user
+  under `ProtectSystem=strict`.
+
 ## [0.2.0] — 2026-04-27
 
 ### Added
