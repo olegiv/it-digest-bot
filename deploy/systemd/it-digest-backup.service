@@ -12,13 +12,14 @@ ExecStart=/usr/local/bin/it-digest-backup
 StandardOutput=journal
 StandardError=journal
 
-# Hardening — no network needed, read/write restricted to the backup dir
-# and read-only access to the DB (.backup copies to a new file).
+# Hardening — no network needed. The DB dir is writable because WAL
+# mode requires mmap'ing the -shm sidecar even on read-only opens;
+# the script still uses `sqlite3 -readonly` so the source is untouched.
 NoNewPrivileges=true
 ProtectSystem=strict
 ProtectHome=true
 PrivateTmp=true
-ReadOnlyPaths=/var/lib/it-digest
+ReadWritePaths=/var/lib/it-digest
 ReadWritePaths=/var/backups/it-digest
 RestrictSUIDSGID=true
 LockPersonality=true
