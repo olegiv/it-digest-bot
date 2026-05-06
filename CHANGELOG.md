@@ -9,6 +9,20 @@ and this project adheres to [Semantic Versioning 2.0.0](https://semver.org/spec/
 
 ### Fixed
 
+#### Daily digest LLM JSON output
+
+- `digest daily` no longer fails with
+  `summarize: no JSON array found in model output` when the
+  model adds a chain-of-thought preamble. The Anthropic
+  request now prefills the assistant turn with `[`, pinning
+  the response to start mid-array; the parser stitches the
+  prefill back on when extracting the array. As defense in
+  depth, parse failures now include the API `stop_reason`
+  and produce a distinct error
+  (`anthropic truncated at max_tokens …`) when the response
+  was truncated, so the operator action is obvious from the
+  journal.
+
 #### Daily SQLite backup
 
 - `it-digest-backup.service` no longer fails with

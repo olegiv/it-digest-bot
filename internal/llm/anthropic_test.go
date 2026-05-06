@@ -90,6 +90,81 @@ func TestSummarizeHandlesProseAroundJSON(t *testing.T) {
 	}
 }
 
+func TestSummarize_PrefillsAssistantBracket(t *testing.T) {
+	t.Parallel()
+	var gotBody map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		b, _ := io.ReadAll(r.Body)
+		_ = json.Unmarshal(b, &gotBody)
+		fmt.Fprint(w, `{"content":[{"type":"text","text":"{\"source_index\":0,\"headline\":\"H\",\"blurb\":\"B\"}]"}],"stop_reason":"end_turn"}`)
+	}))
+	defer srv.Close()
+
+	c := NewAnthropic("k", "claude-sonnet-4-6", testHTTP(), WithAnthropicBaseURL(srv.URL))
+	out, err := c.Summarize(context.Background(), SummarizeRequest{
+		Articles: []Article{{Source: "s", Title: "t", URL: "u"}},
+	})
+	if err != nil {
+		t.Fatalf("Summarize: %v", err)
+	}
+	if len(out) != 1 || out[0].Headline != "H" {
+		t.Fatalf("out = %+v", out)
+	}
+
+	msgs, ok := gotBody["messages"].([]any)
+	if !ok || len(msgs) != 2 {
+		t.Fatalf("messages = %#v, want 2 entries", gotBody["messages"])
+	}
+	prefill, ok := msgs[1].(map[string]any)
+	if !ok {
+		t.Fatalf("messages[1] = %#v, want map", msgs[1])
+	}
+	if prefill["role"] != "assistant" {
+		t.Errorf("messages[1].role = %v, want assistant", prefill["role"])
+	}
+	if prefill["content"] != "[" {
+		t.Errorf("messages[1].content = %q, want %q", prefill["content"], "[")
+	}
+}
+
+func TestSummarize_MaxTokensTruncationError(t *testing.T) {
+	t.Parallel()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		fmt.Fprint(w, `{"content":[{"type":"text","text":"Looking at the candidates, I need to pick the most"}],"stop_reason":"max_tokens"}`)
+	}))
+	defer srv.Close()
+
+	c := NewAnthropic("k", "claude-sonnet-4-6", testHTTP(), WithAnthropicBaseURL(srv.URL))
+	_, err := c.Summarize(context.Background(), SummarizeRequest{
+		Articles: []Article{{Source: "s", Title: "t", URL: "u"}},
+	})
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	if !strings.Contains(err.Error(), "truncated at max_tokens") {
+		t.Errorf("error %q does not mention max_tokens truncation", err.Error())
+	}
+}
+
+func TestSummarize_ParseErrorIncludesStopReason(t *testing.T) {
+	t.Parallel()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		fmt.Fprint(w, `{"content":[{"type":"text","text":"not json at all"}],"stop_reason":"end_turn"}`)
+	}))
+	defer srv.Close()
+
+	c := NewAnthropic("k", "claude-sonnet-4-6", testHTTP(), WithAnthropicBaseURL(srv.URL))
+	_, err := c.Summarize(context.Background(), SummarizeRequest{
+		Articles: []Article{{Source: "s", Title: "t", URL: "u"}},
+	})
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	if !strings.Contains(err.Error(), `stop_reason="end_turn"`) {
+		t.Errorf("error %q does not include stop_reason", err.Error())
+	}
+}
+
 func TestSummarizeAPIError(t *testing.T) {
 	t.Parallel()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {

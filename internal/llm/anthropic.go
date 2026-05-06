@@ -88,7 +88,7 @@ Pick the top items for this audience. Target 5 to 8 items total; if fewer qualif
 
 DIVERSITY — HARD CAP: Return at most %d items from any single source (identified by the "source" field in the input). Even if one source has many strong candidates, pick its top %d and drop the rest; a slightly less important item from an uncovered source is better than a third item from a source already represented. This cap is non-negotiable and applies even on a big-news day for a single provider.
 
-Output: ONLY a JSON array with this exact shape. No prose before or after. No code fences.
+Output a JSON array with this exact shape — your response is prefilled with the opening "[" so continue directly with the first object and end with the closing "]":
 [
   {"source_index": <int — the "index" of the chosen article>,
    "headline": "<concise rewrite of the title, max 100 chars>",
@@ -164,11 +164,18 @@ func (c *AnthropicClient) Summarize(ctx context.Context, req SummarizeRequest) (
 		return nil, fmt.Errorf("build prompt: %w", err)
 	}
 
+	// Prefill the assistant turn with "[" so the model continues directly
+	// into the JSON array. This pins the first token, blocks chain-of-thought
+	// preambles that consumed the token budget on big-news days, and is
+	// Anthropic's documented technique for forced-shape JSON output.
 	reqBody, err := json.Marshal(anthropicRequest{
 		Model:     model,
 		MaxTokens: maxTokens,
 		System:    []anthropicContent{{Type: "text", Text: buildSystemPrompt(req.MaxPerSource)}},
-		Messages:  []anthropicMessage{{Role: "user", Content: userText}},
+		Messages: []anthropicMessage{
+			{Role: "user", Content: userText},
+			{Role: "assistant", Content: jsonPrefill},
+		},
 	})
 	if err != nil {
 		return nil, fmt.Errorf("marshal request: %w", err)
@@ -215,8 +222,19 @@ func (c *AnthropicClient) Summarize(ctx context.Context, req SummarizeRequest) (
 	if text == "" {
 		return nil, fmt.Errorf("no text block in response")
 	}
-	return parseSummaries(text)
+	out, err := parseSummaries(text)
+	if err != nil {
+		if apiResp.StopReason == "max_tokens" {
+			return nil, fmt.Errorf("anthropic truncated at max_tokens (raise llm.max_tokens or reduce candidates): %w", err)
+		}
+		return nil, fmt.Errorf("%w (stop_reason=%q)", err, apiResp.StopReason)
+	}
+	return out, nil
 }
+
+// jsonPrefill is the assistant prefill that pins the response to start
+// with the JSON array's opening bracket.
+const jsonPrefill = "["
 
 func buildUserPrompt(articles []Article, maxPerSource int) (string, error) {
 	type candidate struct {
@@ -251,6 +269,12 @@ func buildUserPrompt(articles []Article, maxPerSource int) (string, error) {
 
 func parseSummaries(s string) ([]Summary, error) {
 	trimmed := extractJSONArray(s)
+	if trimmed == "" {
+		// Anthropic does not echo the assistant prefill in the response,
+		// so an obedient model returns text starting mid-array. Retry with
+		// the prefill stitched back on.
+		trimmed = extractJSONArray(jsonPrefill + s)
+	}
 	if trimmed == "" {
 		return nil, fmt.Errorf("no JSON array found in model output: %q", snippet([]byte(s)))
 	}
