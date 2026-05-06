@@ -88,14 +88,12 @@ Pick the top items for this audience. Target 5 to 8 items total; if fewer qualif
 
 DIVERSITY — HARD CAP: Return at most %d items from any single source (identified by the "source" field in the input). Even if one source has many strong candidates, pick its top %d and drop the rest; a slightly less important item from an uncovered source is better than a third item from a source already represented. This cap is non-negotiable and applies even on a big-news day for a single provider.
 
-Output a JSON array with this exact shape — your response is prefilled with the opening "[" so continue directly with the first object and end with the closing "]":
-[
-  {"source_index": <int — the "index" of the chosen article>,
-   "headline": "<concise rewrite of the title, max 100 chars>",
-   "blurb": "<one or two factual sentences on why it matters to builders, max 280 chars, plain text>"}
-]
+Return your selection by calling the submit_summaries tool exactly once. Each summary entry has:
+- source_index: the integer "index" of the chosen article
+- headline: a concise rewrite of the title, max 100 chars
+- blurb: one or two factual sentences on why it matters to builders, max 280 chars, plain text
 
-Order by importance, most important first. Write in English. Do not quote article text verbatim.`
+Order summaries by importance, most important first. Write in English. Do not quote article text verbatim.`
 
 // buildSystemPrompt returns the system prompt with the per-source cap
 // interpolated. When maxPerSource <= 0 the cap block is stripped so the
@@ -119,10 +117,12 @@ func buildSystemPrompt(maxPerSource int) string {
 
 // anthropicRequest mirrors /v1/messages. Only the fields we actually set.
 type anthropicRequest struct {
-	Model     string             `json:"model"`
-	MaxTokens int                `json:"max_tokens"`
-	System    []anthropicContent `json:"system,omitempty"`
-	Messages  []anthropicMessage `json:"messages"`
+	Model      string               `json:"model"`
+	MaxTokens  int                  `json:"max_tokens"`
+	System     []anthropicContent   `json:"system,omitempty"`
+	Messages   []anthropicMessage   `json:"messages"`
+	Tools      []anthropicTool      `json:"tools,omitempty"`
+	ToolChoice *anthropicToolChoice `json:"tool_choice,omitempty"`
 }
 
 type anthropicMessage struct {
@@ -130,9 +130,26 @@ type anthropicMessage struct {
 	Content string `json:"content"`
 }
 
+// anthropicContent is one block in a request system prompt or response
+// content array. Response blocks may be type "text" or "tool_use"; the
+// extra fields are populated only on tool_use.
 type anthropicContent struct {
+	Type  string          `json:"type"`
+	Text  string          `json:"text,omitempty"`
+	ID    string          `json:"id,omitempty"`
+	Name  string          `json:"name,omitempty"`
+	Input json.RawMessage `json:"input,omitempty"`
+}
+
+type anthropicTool struct {
+	Name        string          `json:"name"`
+	Description string          `json:"description"`
+	InputSchema json.RawMessage `json:"input_schema"`
+}
+
+type anthropicToolChoice struct {
 	Type string `json:"type"`
-	Text string `json:"text"`
+	Name string `json:"name,omitempty"`
 }
 
 // anthropicResponse is the subset we need.
@@ -146,6 +163,34 @@ type anthropicError struct {
 	Type    string `json:"type"`
 	Message string `json:"message"`
 }
+
+// submitSummariesToolName is the forced-call tool that returns the
+// ranked summaries. Sonnet 4.6 rejects assistant-prefill, so structured
+// output goes through tool_use instead.
+const submitSummariesToolName = "submit_summaries"
+
+// submitSummariesSchema is the JSON Schema for the tool's input. The
+// model is forced (via tool_choice) to call the tool with input matching
+// this schema, which gives us guaranteed-shape JSON without parsing
+// free-form text.
+const submitSummariesSchema = `{
+  "type": "object",
+  "properties": {
+    "summaries": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "source_index": {"type": "integer", "description": "the \"index\" of the chosen candidate"},
+          "headline":     {"type": "string",  "description": "concise title rewrite, max 100 chars"},
+          "blurb":        {"type": "string",  "description": "1-2 sentences on why it matters, max 280 chars, plain text"}
+        },
+        "required": ["source_index", "headline", "blurb"]
+      }
+    }
+  },
+  "required": ["summaries"]
+}`
 
 // Summarize sends the articles to Claude and returns ranked summaries.
 // The response is expected to be a JSON array in the first text block.
@@ -164,18 +209,22 @@ func (c *AnthropicClient) Summarize(ctx context.Context, req SummarizeRequest) (
 		return nil, fmt.Errorf("build prompt: %w", err)
 	}
 
-	// Prefill the assistant turn with "[" so the model continues directly
-	// into the JSON array. This pins the first token, blocks chain-of-thought
-	// preambles that consumed the token budget on big-news days, and is
-	// Anthropic's documented technique for forced-shape JSON output.
+	// Force the model to call submit_summaries. tool_choice with a named
+	// tool makes the API reject any response that does not invoke that
+	// tool, which gives us guaranteed-shape JSON in tool_use.input —
+	// no fragile text parsing, no chain-of-thought preambles eating
+	// max_tokens, and (unlike assistant-prefill) supported on Sonnet 4.6.
 	reqBody, err := json.Marshal(anthropicRequest{
 		Model:     model,
 		MaxTokens: maxTokens,
 		System:    []anthropicContent{{Type: "text", Text: buildSystemPrompt(req.MaxPerSource)}},
-		Messages: []anthropicMessage{
-			{Role: "user", Content: userText},
-			{Role: "assistant", Content: jsonPrefill},
-		},
+		Messages:  []anthropicMessage{{Role: "user", Content: userText}},
+		Tools: []anthropicTool{{
+			Name:        submitSummariesToolName,
+			Description: "Submit the final ranked, summarized digest entries for posting to the channel.",
+			InputSchema: json.RawMessage(submitSummariesSchema),
+		}},
+		ToolChoice: &anthropicToolChoice{Type: "tool", Name: submitSummariesToolName},
 	})
 	if err != nil {
 		return nil, fmt.Errorf("marshal request: %w", err)
@@ -218,23 +267,31 @@ func (c *AnthropicClient) Summarize(ctx context.Context, req SummarizeRequest) (
 		return nil, fmt.Errorf("anthropic http %d: %s", resp.StatusCode, snippet(buf))
 	}
 
-	text := firstTextBlock(apiResp.Content)
-	if text == "" {
-		return nil, fmt.Errorf("no text block in response")
-	}
-	out, err := parseSummaries(text)
-	if err != nil {
+	tu := firstToolUse(apiResp.Content, submitSummariesToolName)
+	if tu == nil {
 		if apiResp.StopReason == "max_tokens" {
-			return nil, fmt.Errorf("anthropic truncated at max_tokens (raise llm.max_tokens or reduce candidates): %w", err)
+			return nil, fmt.Errorf("anthropic truncated at max_tokens before tool_use (raise llm.max_tokens or reduce candidates) (text=%q)", snippet([]byte(firstTextBlock(apiResp.Content))))
 		}
-		return nil, fmt.Errorf("%w (stop_reason=%q)", err, apiResp.StopReason)
+		return nil, fmt.Errorf("no %s tool_use in response (stop_reason=%q, text=%q)",
+			submitSummariesToolName, apiResp.StopReason, snippet([]byte(firstTextBlock(apiResp.Content))))
+	}
+	var input struct {
+		Summaries []struct {
+			SourceIndex int    `json:"source_index"`
+			Headline    string `json:"headline"`
+			Blurb       string `json:"blurb"`
+		} `json:"summaries"`
+	}
+	if err := json.Unmarshal(tu.Input, &input); err != nil {
+		return nil, fmt.Errorf("decode %s tool input: %w (raw: %s)",
+			submitSummariesToolName, err, snippet(tu.Input))
+	}
+	out := make([]Summary, len(input.Summaries))
+	for i, s := range input.Summaries {
+		out[i] = Summary{SourceIndex: s.SourceIndex, Headline: s.Headline, Blurb: s.Blurb}
 	}
 	return out, nil
 }
-
-// jsonPrefill is the assistant prefill that pins the response to start
-// with the JSON array's opening bracket.
-const jsonPrefill = "["
 
 func buildUserPrompt(articles []Article, maxPerSource int) (string, error) {
 	type candidate struct {
@@ -267,56 +324,6 @@ func buildUserPrompt(articles []Article, maxPerSource int) (string, error) {
 	return header + "\n\n" + string(b), nil
 }
 
-func parseSummaries(s string) ([]Summary, error) {
-	trimmed := extractJSONArray(s)
-	if trimmed == "" {
-		// Anthropic does not echo the assistant prefill in the response,
-		// so an obedient model returns text starting mid-array. Retry with
-		// the prefill stitched back on.
-		trimmed = extractJSONArray(jsonPrefill + s)
-	}
-	if trimmed == "" {
-		return nil, fmt.Errorf("no JSON array found in model output: %q", snippet([]byte(s)))
-	}
-	type raw struct {
-		SourceIndex int    `json:"source_index"`
-		Headline    string `json:"headline"`
-		Blurb       string `json:"blurb"`
-	}
-	var rs []raw
-	if err := json.Unmarshal([]byte(trimmed), &rs); err != nil {
-		return nil, fmt.Errorf("decode summaries JSON: %w (raw: %s)", err, snippet([]byte(trimmed)))
-	}
-	out := make([]Summary, len(rs))
-	for i, r := range rs {
-		out[i] = Summary(r)
-	}
-	return out, nil
-}
-
-// extractJSONArray returns the substring between the first '[' and the
-// matching closing ']'. It tolerates surrounding prose, code fences, or
-// leading whitespace — which Claude sometimes emits despite instructions.
-func extractJSONArray(s string) string {
-	i := strings.IndexByte(s, '[')
-	if i < 0 {
-		return ""
-	}
-	depth := 0
-	for j := i; j < len(s); j++ {
-		switch s[j] {
-		case '[':
-			depth++
-		case ']':
-			depth--
-			if depth == 0 {
-				return s[i : j+1]
-			}
-		}
-	}
-	return ""
-}
-
 func firstTextBlock(blocks []anthropicContent) string {
 	for _, b := range blocks {
 		if b.Type == "text" && b.Text != "" {
@@ -324,6 +331,15 @@ func firstTextBlock(blocks []anthropicContent) string {
 		}
 	}
 	return ""
+}
+
+func firstToolUse(blocks []anthropicContent, name string) *anthropicContent {
+	for i := range blocks {
+		if blocks[i].Type == "tool_use" && blocks[i].Name == name {
+			return &blocks[i]
+		}
+	}
+	return nil
 }
 
 func snippet(b []byte) string {

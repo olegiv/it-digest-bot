@@ -14,14 +14,19 @@ and this project adheres to [Semantic Versioning 2.0.0](https://semver.org/spec/
 - `digest daily` no longer fails with
   `summarize: no JSON array found in model output` when the
   model adds a chain-of-thought preamble. The Anthropic
-  request now prefills the assistant turn with `[`, pinning
-  the response to start mid-array; the parser stitches the
-  prefill back on when extracting the array. As defense in
-  depth, parse failures now include the API `stop_reason`
-  and produce a distinct error
-  (`anthropic truncated at max_tokens …`) when the response
-  was truncated, so the operator action is obvious from the
-  journal.
+  request now uses tool-use with a forced `tool_choice` of
+  `submit_summaries`, whose JSON Schema declares the exact
+  shape of each entry; the response comes back as
+  structured `tool_use.input` rather than free-form text,
+  which both eliminates fragile text parsing and prevents
+  reasoning preambles from exhausting `max_tokens` before
+  any usable output. Removed the now-unused
+  `extractJSONArray` / `parseSummaries` helpers and their
+  tests. Parse-stage failures still surface the API
+  `stop_reason`, and a truncated response (no `tool_use`
+  block, `stop_reason="max_tokens"`) produces a distinct
+  error pointing the operator at `llm.max_tokens` or the
+  candidate count.
 
 #### Daily SQLite backup
 
