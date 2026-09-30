@@ -718,7 +718,7 @@ func TestRunnerPostCapOverrides(t *testing.T) {
 		}
 	})
 
-	t.Run("dry run counts renders", func(t *testing.T) {
+	t.Run("dry run is not capped", func(t *testing.T) {
 		t.Parallel()
 		st := openStore(t)
 		bot := &fakeSender{}
@@ -731,11 +731,13 @@ func TestRunnerPostCapOverrides(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Run: %v", err)
 		}
-		if bot.calls != 0 || res.CappedCount() != 1 {
-			t.Errorf("dry run calls %d capped %d, want 0/1", bot.calls, res.CappedCount())
+		// Dry runs write nothing, so capping them would hide every candidate
+		// past the limit on each repeated run; all three must render.
+		if bot.calls != 0 || res.CappedCount() != 0 {
+			t.Errorf("dry run calls %d capped %d, want 0/0", bot.calls, res.CappedCount())
 		}
-		if got := strings.Count(out.String(), "END DRY-RUN"); got != 2 {
-			t.Errorf("dry-run rendered %d announcements, want 2:\n%s", got, out.String())
+		if got := strings.Count(out.String(), "END DRY-RUN"); got != 3 {
+			t.Errorf("dry-run rendered %d announcements, want 3:\n%s", got, out.String())
 		}
 	})
 }

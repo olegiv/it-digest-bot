@@ -121,8 +121,9 @@ type Runner struct {
 	DryRun bool
 	DryOut io.Writer
 
-	// MaxPostsPerRun caps the send attempts (or dry-run renders) per Run
-	// across all sources. Zero means DefaultMaxPostsPerRun; a negative value
+	// MaxPostsPerRun caps the send attempts per Run across all sources.
+	// Dry runs are not capped: they write nothing, so a cap would hide every
+	// candidate past the limit on each repeated run. Zero means DefaultMaxPostsPerRun; a negative value
 	// (UnlimitedPosts) disables the cap. A failed send still consumes a slot,
 	// so a Telegram outage stops after this many attempts instead of trying
 	// every unseen release. A Seeder's one-off notice is not counted. "Zero
@@ -283,8 +284,8 @@ func validateCandidate(cand Candidate) error {
 }
 
 // handleCandidate processes one candidate. attempted reports whether a send
-// slot was consumed (a send was made, even if it failed, or would have been
-// in dry-run) so Run can enforce MaxPostsPerRun.
+// slot was consumed (a send was made, even if it failed) so Run can enforce
+// MaxPostsPerRun; dry-run renders do not consume one.
 func (r *Runner) handleCandidate(ctx context.Context, cand Candidate, limitReached bool, log *slog.Logger) (item ItemResult, attempted bool, err error) {
 	item = ItemResult{
 		Source:  cand.Source,
@@ -341,7 +342,7 @@ func (r *Runner) handleCandidate(ctx context.Context, cand Candidate, limitReach
 
 	if r.DryRun {
 		r.printDryRun(cand, ann, log)
-		return item, true, nil
+		return item, false, nil // dry-run renders everything; no send slot consumed
 	}
 
 	msgID, err := r.Bot.SendMessage(ctx, r.Channel, ann.Text, telegram.ParseModeMarkdownV2)
