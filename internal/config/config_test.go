@@ -165,6 +165,9 @@ func TestLoadDrupalSecurityFeedURL(t *testing.T) {
 		{name: "remote http rejected", feedURL: "http://example.org/feed.xml", wantErr: "drupal_security.feed_url must use https"},
 		{name: "file scheme rejected", feedURL: "file:///etc/passwd", wantErr: "drupal_security.feed_url must use https"},
 		{name: "missing host rejected", feedURL: "https:///feed.xml", wantErr: "drupal_security.feed_url must include a host"},
+		{name: "credentials rejected", feedURL: "https://user:secret@mirror.example.org/feed.xml", wantErr: "drupal_security.feed_url must not contain credentials"},
+		{name: "query string rejected", feedURL: "https://mirror.example.org/feed.xml?token=abc", wantErr: "drupal_security.feed_url must not contain a query string or fragment"},
+		{name: "fragment rejected", feedURL: "https://mirror.example.org/feed.xml#frag", wantErr: "drupal_security.feed_url must not contain a query string or fragment"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

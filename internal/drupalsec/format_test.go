@@ -228,6 +228,82 @@ func TestFormatAdvisoryNeutralisesMarkupInFeedText(t *testing.T) {
 	}
 }
 
+// TestFormatAdvisoryBoundsHeaderFields makes the size guarantee real for
+// header fields, not just description and solution: an item with every field
+// oversized must still render under the Telegram limit with a usable link.
+func TestFormatAdvisoryBoundsHeaderFields(t *testing.T) {
+	t.Parallel()
+	a := sampleAdvisory()
+	big := strings.Repeat("v.", 2500) // 5000 bytes, every '.' escapes to 2 bytes
+	a.ID = "SA-CONTRIB-2026-" + strings.Repeat("9", 3000)
+	a.Title = big
+	a.ProjectName = big
+	a.ProjectMachineName = strings.Repeat("m_", 2500)
+	a.RiskLabel = big
+	a.RiskScore = big
+	a.Vulnerability = big
+	a.AffectedVersions = strings.Repeat("<1.0, ", 800)
+	a.CVEs = make([]string, 300)
+	for i := range a.CVEs {
+		a.CVEs[i] = "CVE-2026-100000"
+	}
+	a.Link = "https://www.drupal.org/" + strings.Repeat("x", 3000)
+	a.Description = big
+	a.Solution = big
+
+	msg := FormatAdvisory(a)
+	if len(msg) > telegram.MaxMessageBytes {
+		t.Fatalf("message too long: %d bytes", len(msg))
+	}
+	if !strings.Contains(msg, "🔗 [Advisory](https://www.drupal.org/security)") {
+		t.Errorf("oversized link must fall back to the security page:\n%s", msg)
+	}
+	if strings.Count(msg, "…") < 6 {
+		t.Errorf("expected capped fields to carry an ellipsis:\n%s", msg)
+	}
+	assertEscaped(t, msg)
+
+	psa := sampleAdvisory()
+	psa.Kind, psa.ID, psa.Title = KindPSA, "PSA-2026-01-01", big
+	if m := FormatAdvisory(psa); len(m) > telegram.MaxMessageBytes {
+		t.Errorf("PSA message too long: %d bytes", len(m))
+	}
+
+	notice := FormatSeedNotice(50, a)
+	if len(notice) > telegram.MaxMessageBytes {
+		t.Errorf("seed notice too long: %d bytes", len(notice))
+	}
+	assertEscaped(t, notice)
+}
+
+func TestCapField(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name, in string
+		max      int
+		want     string
+	}{
+		{name: "short unchanged", in: "abc", max: 10, want: "abc"},
+		{name: "exact unchanged", in: "abc", max: 3, want: "abc"},
+		{name: "plain cut", in: "abcdefgh", max: 6, want: "abc…"},
+		{name: "no dangling backslash", in: `abc\.def`, max: 7, want: "abc…"},
+		{name: "escaped backslash pair kept", in: `ab\\cdef`, max: 7, want: `ab\\…`},
+		{name: "rune boundary", in: "ééééé", max: 6, want: "é…"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			got := capField(tc.in, tc.max)
+			if got != tc.want {
+				t.Errorf("capField(%q, %d) = %q, want %q", tc.in, tc.max, got, tc.want)
+			}
+			if len(got) > tc.max {
+				t.Errorf("capField(%q, %d) is %d bytes", tc.in, tc.max, len(got))
+			}
+		})
+	}
+}
+
 func TestFormatSeedNotice(t *testing.T) {
 	t.Parallel()
 	msg := FormatSeedNotice(50, sampleAdvisory())

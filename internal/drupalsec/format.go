@@ -3,6 +3,7 @@ package drupalsec
 import (
 	"fmt"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/olegiv/it-digest-bot/internal/telegram"
 )
@@ -12,14 +13,26 @@ const (
 	MaxDescriptionBytes = 700
 	// MaxSolutionLines caps the solution bullet list in a post.
 	MaxSolutionLines = 6
+	// MaxFieldBytes caps each escaped header field (ID, title, project,
+	// risk, vulnerability, affected versions). Together with MaxCVEBytes and
+	// MaxLinkBytes it bounds the header at roughly 3.3 KiB, so even a
+	// description-less, solution-less post fits telegram.MaxMessageBytes.
+	MaxFieldBytes = 256
+	// MaxCVEBytes caps the escaped, comma-joined CVE list.
+	MaxCVEBytes = 512
+	// MaxLinkBytes caps the advisory link. A longer link (drupal.org's are
+	// ~45 bytes) is replaced by SecurityPageURL rather than truncated into
+	// a broken URL.
+	MaxLinkBytes = 512
 
 	hashtags = "\\#Drupal \\#Security"
 )
 
 // FormatAdvisory renders one advisory as a MarkdownV2 post. Dynamic values
-// are escaped individually; the result is guaranteed to fit
-// telegram.MaxMessageBytes (long descriptions and solutions are dropped
-// before the header and link ever would be).
+// are escaped individually and every header field is capped (MaxFieldBytes,
+// MaxCVEBytes, MaxLinkBytes), so the result always fits
+// telegram.MaxMessageBytes: long descriptions and solutions are dropped
+// first, and the header and link can never grow past the limit on their own.
 func FormatAdvisory(a *Advisory) string {
 	text := render(a, true, true)
 	if len(text) > telegram.MaxMessageBytes {
@@ -45,27 +58,27 @@ func render(a *Advisory, withDescription, withSolution bool) string {
 		id = a.Version()
 	}
 	if a.Kind == KindPSA {
-		fmt.Fprintf(&sb, "📢 *Drupal PSA* — %s\n", esc(id))
-		fmt.Fprintf(&sb, "*%s*\n", esc(psaTitle(a)))
+		fmt.Fprintf(&sb, "📢 *Drupal PSA* — %s\n", field(id))
+		fmt.Fprintf(&sb, "*%s*\n", field(psaTitle(a)))
 	} else {
-		fmt.Fprintf(&sb, "%s *Drupal security advisory* — %s\n", riskEmoji(a.RiskLabel), esc(id))
+		fmt.Fprintf(&sb, "%s *Drupal security advisory* — %s\n", riskEmoji(a.RiskLabel), field(id))
 		writeProjectLine(&sb, a)
 		sb.WriteString("\n")
 		if a.RiskLabel != "" {
-			fmt.Fprintf(&sb, "Risk: *%s*", esc(a.RiskLabel))
+			fmt.Fprintf(&sb, "Risk: *%s*", field(a.RiskLabel))
 			if a.RiskScore != "" {
-				fmt.Fprintf(&sb, " %s", esc(a.RiskScore))
+				fmt.Fprintf(&sb, " %s", field(a.RiskScore))
 			}
 			sb.WriteString("\n")
 		}
 		if a.Vulnerability != "" {
-			fmt.Fprintf(&sb, "Vulnerability: %s\n", esc(a.Vulnerability))
+			fmt.Fprintf(&sb, "Vulnerability: %s\n", field(a.Vulnerability))
 		}
 		if a.AffectedVersions != "" {
-			fmt.Fprintf(&sb, "Affected versions: `%s`\n", telegram.EscapeMarkdownV2Code(a.AffectedVersions))
+			fmt.Fprintf(&sb, "Affected versions: `%s`\n", codeField(a.AffectedVersions))
 		}
 		if len(a.CVEs) > 0 {
-			fmt.Fprintf(&sb, "CVE: %s\n", esc(strings.Join(a.CVEs, ", ")))
+			fmt.Fprintf(&sb, "CVE: %s\n", capField(esc(strings.Join(a.CVEs, ", ")), MaxCVEBytes))
 		}
 	}
 	if !a.Published.IsZero() {
@@ -85,8 +98,49 @@ func render(a *Advisory, withDescription, withSolution bool) string {
 		}
 	}
 
-	fmt.Fprintf(&sb, "\n🔗 [Advisory](%s)\n\n%s", telegram.EscapeMarkdownV2URL(a.Link), hashtags)
+	fmt.Fprintf(&sb, "\n🔗 [Advisory](%s)\n\n%s", telegram.EscapeMarkdownV2URL(advisoryLink(a)), hashtags)
 	return sb.String()
+}
+
+// field escapes a feed-derived header value and caps it at MaxFieldBytes.
+func field(s string) string { return capField(esc(s), MaxFieldBytes) }
+
+// codeField is field for values rendered inside a code span.
+func codeField(s string) string { return capField(telegram.EscapeMarkdownV2Code(s), MaxFieldBytes) }
+
+// advisoryLink returns the item link, or the security landing page when the
+// link is missing or longer than MaxLinkBytes.
+func advisoryLink(a *Advisory) string {
+	if a.Link == "" || len(a.Link) > MaxLinkBytes {
+		return SecurityPageURL
+	}
+	return a.Link
+}
+
+// capField truncates an already-escaped MarkdownV2 fragment to at most max
+// bytes, appending "…". It cuts on a rune boundary and never leaves a
+// dangling backslash, which would otherwise escape whatever the template
+// places after the field.
+func capField(escaped string, max int) string {
+	if len(escaped) <= max {
+		return escaped
+	}
+	const ellipsis = "…"
+	cut := max - len(ellipsis)
+	if cut < 0 {
+		cut = 0
+	}
+	for cut > 0 && cut < len(escaped) && !utf8.RuneStart(escaped[cut]) {
+		cut--
+	}
+	trailing := 0
+	for i := cut - 1; i >= 0 && escaped[i] == '\\'; i-- {
+		trailing++
+	}
+	if trailing%2 == 1 {
+		cut--
+	}
+	return escaped[:cut] + ellipsis
 }
 
 // FormatSeedNotice renders the one-off post made when the source records the
@@ -96,7 +150,7 @@ func FormatSeedNotice(count int, newest *Advisory) string {
 	sb.WriteString("🛡️ *Drupal security advisories* are now tracked here\\.\n\n")
 	fmt.Fprintf(&sb, "Recorded %s currently listed on drupal\\.org as the baseline", esc(plural(count, "advisory", "advisories")))
 	if newest != nil && newest.ID != "" {
-		fmt.Fprintf(&sb, " \\(newest: %s", esc(newest.ID))
+		fmt.Fprintf(&sb, " \\(newest: %s", field(newest.ID))
 		if !newest.Published.IsZero() {
 			fmt.Fprintf(&sb, ", %s", esc(newest.Published.UTC().Format("2006-01-02")))
 		}
@@ -112,9 +166,9 @@ func writeProjectLine(sb *strings.Builder, a *Advisory) {
 	if name == "" {
 		name = a.Title
 	}
-	fmt.Fprintf(sb, "*%s*", esc(name))
+	fmt.Fprintf(sb, "*%s*", field(name))
 	if a.ProjectMachineName != "" && a.ProjectMachineName != name {
-		fmt.Fprintf(sb, " \\(`%s`\\)", telegram.EscapeMarkdownV2Code(a.ProjectMachineName))
+		fmt.Fprintf(sb, " \\(`%s`\\)", codeField(a.ProjectMachineName))
 	}
 	sb.WriteString("\n")
 }

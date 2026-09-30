@@ -162,7 +162,9 @@ func (c *Config) Validate() error {
 }
 
 // validateFeedURL accepts an empty value (use the built-in default), an https
-// URL with a host, or plain http to localhost / a loopback address.
+// URL with a host, or plain http to localhost / a loopback address. Userinfo,
+// query strings and fragments are rejected: the value is printed by
+// config-check and appears in HTTP error logs, and secrets never live in TOML.
 func validateFeedURL(key, raw string) error {
 	if strings.TrimSpace(raw) == "" {
 		return nil
@@ -177,6 +179,12 @@ func validateFeedURL(key, raw string) error {
 	host := u.Hostname()
 	if host == "" {
 		return fmt.Errorf("%s must include a host", key)
+	}
+	if u.User != nil {
+		return fmt.Errorf("%s must not contain credentials", key)
+	}
+	if u.RawQuery != "" || u.ForceQuery || u.Fragment != "" {
+		return fmt.Errorf("%s must not contain a query string or fragment", key)
 	}
 	if u.Scheme == "https" || host == "localhost" {
 		return nil

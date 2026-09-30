@@ -21,7 +21,11 @@ and this project adheres to [Semantic Versioning 2.0.0](https://semver.org/spec/
   upgrade steps, oldest first. Deterministic: no LLM call. New
   package `internal/drupalsec`; optional `[drupal_security] feed_url`
   override in `config.toml` (`https`, or `http` for `localhost`
-  fixtures).
+  fixtures; credentials, query strings and fragments are rejected
+  because the value is printed by `config-check` and logged on HTTP
+  errors). Every header field of a post is capped, and an oversized
+  advisory link falls back to `drupal.org/security`, so a post can
+  never exceed Telegram's 4096-byte limit and get stuck retrying.
 
 #### Release watcher
 
