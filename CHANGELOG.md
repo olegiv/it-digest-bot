@@ -76,7 +76,7 @@ and this project adheres to [Semantic Versioning 2.0.0](https://semver.org/spec/
 
 - `releasewatch.ItemResult` reports a single `Outcome` (`OutcomeError`,
   `OutcomePosted`, `OutcomeSeen`, `OutcomeDeferred`, `OutcomeSeeded`,
-  `OutcomeCapped`) instead of five booleans, so the states are mutually
+  `OutcomeCapped`, `OutcomeRendered` for dry runs) instead of five booleans, so the states are mutually
   exclusive by construction and a candidate that failed before reaching
   one is reported as an error rather than as a success with no flag.
   `Result.Count(Outcome)` replaces the three hand-written loops behind

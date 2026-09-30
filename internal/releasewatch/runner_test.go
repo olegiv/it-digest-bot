@@ -733,8 +733,8 @@ func TestRunnerPostCapOverrides(t *testing.T) {
 		}
 		// Dry runs write nothing, so capping them would hide every candidate
 		// past the limit on each repeated run; all three must render.
-		if bot.calls != 0 || res.CappedCount() != 0 {
-			t.Errorf("dry run calls %d capped %d, want 0/0", bot.calls, res.CappedCount())
+		if bot.calls != 0 || res.CappedCount() != 0 || res.Count(OutcomeRendered) != 3 || res.Count(OutcomeError) != 0 {
+			t.Errorf("dry run calls %d capped %d rendered %d errors %d, want 0/0/3/0", bot.calls, res.CappedCount(), res.Count(OutcomeRendered), res.Count(OutcomeError))
 		}
 		if got := strings.Count(out.String(), "END DRY-RUN"); got != 3 {
 			t.Errorf("dry-run rendered %d announcements, want 3:\n%s", got, out.String())
@@ -893,11 +893,35 @@ func TestRunnerSeedValidatesCandidates(t *testing.T) {
 	}
 }
 
+func TestRunnerRecordFailureIsNotPosted(t *testing.T) {
+	t.Parallel()
+
+	// Telegram accepts the message but the store write fails (context
+	// cancelled from inside the send): the item must not count as posted,
+	// since OutcomePosted means sent AND recorded. The message id is kept so
+	// the operator can find the orphaned post.
+	st := openStore(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	bot := &fakeSender{onSend: cancel}
+	r := &Runner{
+		Sources: []Source{fakeSource{name: "a", candidates: []Candidate{candidate("a", "pkg", "1.0.0")}}},
+		Channel: "@ch", Bot: bot, Releases: st.Releases, Posts: st.Posts,
+	}
+	res, err := r.Run(ctx)
+	if err == nil || !strings.Contains(err.Error(), "record release pkg 1.0.0:") {
+		t.Fatalf("expected record error, got %v", err)
+	}
+	if len(res.Items) != 1 || res.Items[0].Outcome != OutcomeError || res.Items[0].MessageID != 101 || res.PostedCount() != 0 {
+		t.Errorf("item = %+v posted=%d, want OutcomeError with message id 101 and no posted count", res.Items[0], res.PostedCount())
+	}
+}
+
 func TestOutcomeString(t *testing.T) {
 	t.Parallel()
 	for o, want := range map[Outcome]string{
 		OutcomeError: "error", OutcomePosted: "posted", OutcomeSeen: "seen",
-		OutcomeDeferred: "deferred", OutcomeSeeded: "seeded", OutcomeCapped: "capped", Outcome(42): "outcome(42)",
+		OutcomeDeferred: "deferred", OutcomeSeeded: "seeded", OutcomeCapped: "capped", OutcomeRendered: "rendered", Outcome(42): "outcome(42)",
 	} {
 		if got := o.String(); got != want {
 			t.Errorf("Outcome(%d).String() = %q, want %q", uint8(o), got, want)

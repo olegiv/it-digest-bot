@@ -148,9 +148,10 @@ const (
 	OutcomeDeferred                // the source asked to wait (ErrDeferred)
 	OutcomeSeeded                  // recorded as history on a source's first run, not posted
 	OutcomeCapped                  // unseen, but left for a later run because MaxPostsPerRun was reached
+	OutcomeRendered                // dry run: announcement rendered to DryOut, nothing sent or recorded
 )
 
-var outcomeNames = [...]string{"error", "posted", "seen", "deferred", "seeded", "capped"}
+var outcomeNames = [...]string{"error", "posted", "seen", "deferred", "seeded", "capped", "rendered"}
 
 func (o Outcome) String() string {
 	if int(o) < len(outcomeNames) {
@@ -342,6 +343,7 @@ func (r *Runner) handleCandidate(ctx context.Context, cand Candidate, limitReach
 
 	if r.DryRun {
 		r.printDryRun(cand, ann, log)
+		item.Outcome = OutcomeRendered
 		return item, false, nil // dry-run renders everything; no send slot consumed
 	}
 
@@ -349,12 +351,12 @@ func (r *Runner) handleCandidate(ctx context.Context, cand Candidate, limitReach
 	if err != nil {
 		return item, true, fmt.Errorf("telegram send %s %s: %w", cand.Package, cand.Version, err)
 	}
-	item.Outcome = OutcomePosted
 	item.MessageID = msgID
 
 	if err := r.Releases.RecordSeen(ctx, cand.Package, cand.Version, msgID, ann.ReleaseURL); err != nil {
 		return item, true, fmt.Errorf("record release %s %s: %w", cand.Package, cand.Version, err)
 	}
+	item.Outcome = OutcomePosted // sent and recorded; a failed record stays OutcomeError with the message id
 
 	payload, err := json.Marshal(r.payload(cand, ann))
 	if err != nil {
