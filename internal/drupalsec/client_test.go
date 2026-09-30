@@ -119,7 +119,7 @@ func TestParseFeedLiveContrib(t *testing.T) {
 	a := findByID(t, parseOK(t, []byte(liveFeedXML)), "SA-CONTRIB-2026-191")
 	assertEq(t, "GUID", a.GUID, "3623987 at https://www.drupal.org")
 	assertEq(t, "Version", a.Version(), "SA-CONTRIB-2026-191")
-	assertEq(t, "Kind", string(a.Kind), "contrib")
+	assertEq(t, "Kind", string(a.Kind()), "contrib")
 	assertEq(t, "Title", a.Title, "Diba carousel slider - Moderately critical - Cross Site Scripting (XSS) - SA-CONTRIB-2026-191")
 	assertEq(t, "Link", a.Link, "https://www.drupal.org/sa-contrib-2026-191")
 	assertEq(t, "ProjectName", a.ProjectName, "Diba carousel slider")
@@ -157,7 +157,7 @@ func TestParseFeedLiveCritical(t *testing.T) {
 func TestParseFeedLiveCore(t *testing.T) {
 	t.Parallel()
 	a := findByID(t, parseOK(t, []byte(liveFeedXML)), "SA-CORE-2026-013")
-	assertEq(t, "Kind", string(a.Kind), "core")
+	assertEq(t, "Kind", string(a.Kind()), "core")
 	assertEq(t, "ProjectName", a.ProjectName, "Drupal core")
 	assertEq(t, "ProjectMachineName", a.ProjectMachineName, "drupal")
 	// Operators are entity-escaped inside the HTML; tags must be stripped
@@ -173,7 +173,7 @@ func TestParseFeedLiveCore(t *testing.T) {
 func TestParseFeedLivePSA(t *testing.T) {
 	t.Parallel()
 	a := findByID(t, parseOK(t, []byte(liveFeedXML)), "PSA-2026-09-21")
-	assertEq(t, "Kind", string(a.Kind), "psa")
+	assertEq(t, "Kind", string(a.Kind()), "psa")
 	assertEq(t, "ProjectName", a.ProjectName, "")
 	assertEq(t, "RiskLabel", a.RiskLabel, "")
 	assertEq(t, "AffectedVersions", a.AffectedVersions, "")
@@ -224,7 +224,7 @@ func TestParseFeedEdgeCases(t *testing.T) {
 	}
 	linkOnly := advisories[1]
 	assertEq(t, "no-id ID", linkOnly.ID, "")
-	assertEq(t, "no-id Kind", string(linkOnly.Kind), "other")
+	assertEq(t, "no-id Kind", string(linkOnly.Kind()), "other")
 	assertEq(t, "no-id Version", linkOnly.Version(), "nid-8000003")
 	assertEq(t, "RFC1123 GMT date", linkOnly.Published.Format(time.RFC3339), "2026-09-23T17:24:33Z")
 }
@@ -303,7 +303,7 @@ func TestAdvisoryMissingFields(t *testing.T) {
 		t.Errorf("unstructured item missing = %v", got)
 	}
 
-	psa := &Advisory{ID: "PSA-2026-01-01", Kind: KindPSA, Title: "t"}
+	psa := &Advisory{ID: "PSA-2026-01-01", Title: "t"}
 	if got := psa.MissingFields(); len(got) != 1 || got[0] != "published" {
 		t.Errorf("PSA should only require id and published, got %v", got)
 	}

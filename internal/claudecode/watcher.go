@@ -77,7 +77,7 @@ func watcherResult(pkg string, res *releasewatch.Result) *Result {
 			continue
 		}
 		out.LatestVersion = item.Version
-		out.Posted = item.Posted
+		out.Posted = item.Outcome == releasewatch.OutcomePosted
 		out.MessageID = item.MessageID
 		break
 	}
