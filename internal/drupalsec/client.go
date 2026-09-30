@@ -55,8 +55,7 @@ const (
 // Advisory is one parsed security advisory or public service announcement.
 type Advisory struct {
 	GUID               string    // raw RSS guid, e.g. "3623987 at https://www.drupal.org"
-	ID                 string    // "SA-CONTRIB-2026-191"; empty when unrecognised
-	Kind               Kind      // derived from ID
+	ID                 string    // "SA-CONTRIB-2026-191"; empty when unrecognised; Kind() derives from it
 	Title              string    // RSS title
 	Link               string    // advisory page
 	Published          time.Time // RSS pubDate, else updated; zero when both are missing or unparsable
@@ -233,7 +232,6 @@ func parseItem(item *gofeed.Item, guid, link, title string) Advisory {
 		a.Published = item.UpdatedParsed.UTC()
 	}
 	a.ID = ParseAdvisoryID(link, title)
-	a.Kind = KindFromID(a.ID)
 
 	raw := item.Description
 	if raw == "" {
@@ -263,6 +261,10 @@ func parseItem(item *gofeed.Item, guid, link, title string) Advisory {
 	return a
 }
 
+// Kind classifies the advisory by its ID (see KindFromID). It is derived on
+// demand rather than stored so it can never disagree with ID.
+func (a *Advisory) Kind() Kind { return KindFromID(a.ID) }
+
 // MissingFields lists the fields every well-formed drupal.org item carries
 // but this advisory lacks. A non-empty result means the feed markup has
 // drifted from what parseDescription and ParseAdvisoryID expect; the post
@@ -275,7 +277,7 @@ func (a *Advisory) MissingFields() []string {
 	if a.Published.IsZero() {
 		missing = append(missing, "published")
 	}
-	if a.Kind == KindPSA {
+	if a.Kind() == KindPSA {
 		return missing
 	}
 	for _, f := range []struct{ name, value string }{

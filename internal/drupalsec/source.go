@@ -127,7 +127,7 @@ func announcement(a *Advisory) *releasewatch.Announcement {
 			"package":           PackageKey,
 			"version":           a.Version(),
 			"url":               a.Link,
-			"kind":              string(a.Kind),
+			"kind":              string(a.Kind()),
 			"title":             a.Title,
 			"project":           a.ProjectMachineName,
 			"risk":              a.RiskLabel,

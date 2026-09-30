@@ -70,7 +70,7 @@ func render(a *Advisory, withDescription, withSolution bool) string {
 	if id == "" {
 		id = a.Version()
 	}
-	if a.Kind == KindPSA {
+	if a.Kind() == KindPSA {
 		fmt.Fprintf(&sb, "📢 *Drupal PSA* — %s\n", field(id))
 		fmt.Fprintf(&sb, "*%s*\n", field(psaTitle(a)))
 	} else {

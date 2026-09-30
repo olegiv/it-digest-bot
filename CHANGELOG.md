@@ -70,6 +70,20 @@ and this project adheres to [Semantic Versioning 2.0.0](https://semver.org/spec/
   advisory (a `[text](url)` link, a backtick span) renders as literal
   text instead of live markup in the channel.
 
+### Changed
+
+#### Release watcher
+
+- `releasewatch.ItemResult` reports a single `Outcome` (`OutcomeError`,
+  `OutcomePosted`, `OutcomeSeen`, `OutcomeDeferred`, `OutcomeSeeded`,
+  `OutcomeCapped`) instead of five booleans, so the states are mutually
+  exclusive by construction and a candidate that failed before reaching
+  one is reported as an error rather than as a success with no flag.
+  `Result.Count(Outcome)` replaces the three hand-written loops behind
+  `PostedCount`, `SeededCount` and `CappedCount`, which remain.
+- `drupalsec.Advisory.Kind` is now a method derived from `ID` rather
+  than a stored field, so the two can never disagree.
+
 ### Fixed
 
 #### Daily digest LLM JSON output

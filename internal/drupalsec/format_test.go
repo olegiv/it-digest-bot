@@ -29,7 +29,6 @@ func sampleAdvisory() *Advisory {
 	return &Advisory{
 		GUID:               "3623987 at https://www.drupal.org",
 		ID:                 "SA-CONTRIB-2026-184",
-		Kind:               KindContrib,
 		Title:              "Tawk.to - Live chat application - Critical - Cross Site Request Forgery - SA-CONTRIB-2026-184",
 		Link:               "https://www.drupal.org/sa-contrib-2026-184",
 		Published:          time.Date(2026, 9, 23, 17, 14, 48, 0, time.UTC),
@@ -92,7 +91,7 @@ func TestFormatAdvisoryRiskEmoji(t *testing.T) {
 func TestFormatAdvisoryOmitsEmptyFields(t *testing.T) {
 	t.Parallel()
 	a := &Advisory{
-		GUID: "1 at x", ID: "SA-CONTRIB-2026-001", Kind: KindContrib,
+		GUID: "1 at x", ID: "SA-CONTRIB-2026-001",
 		Title: "Thing - Less critical - Bug - SA-CONTRIB-2026-001", Link: "https://www.drupal.org/sa-contrib-2026-001",
 		ProjectName: "Thing", RiskLabel: "Less critical",
 	}
@@ -113,7 +112,7 @@ func TestFormatAdvisoryOmitsEmptyFields(t *testing.T) {
 
 func TestFormatAdvisoryFallbacks(t *testing.T) {
 	t.Parallel()
-	a := &Advisory{GUID: "8000003 at https://www.drupal.org", Kind: KindOther, Title: "Link Only", Link: "https://www.drupal.org/node/8000003"}
+	a := &Advisory{GUID: "8000003 at https://www.drupal.org", Title: "Link Only", Link: "https://www.drupal.org/node/8000003"}
 	msg := FormatAdvisory(a)
 	if !strings.Contains(msg, "— nid\\-8000003\n*Link Only*\n") {
 		t.Errorf("fallbacks to guid-derived version and title missing:\n%s", msg)
@@ -129,7 +128,7 @@ func TestFormatAdvisoryFallbacks(t *testing.T) {
 func TestFormatAdvisoryPSA(t *testing.T) {
 	t.Parallel()
 	a := &Advisory{
-		GUID: "1 at x", ID: "PSA-2026-09-21", Kind: KindPSA,
+		GUID: "1 at x", ID: "PSA-2026-09-21",
 		Title:       "Upcoming critical contributed project security release on September 23, 2026 - PSA-2026-09-21",
 		Link:        "https://www.drupal.org/psa-2026-09-21",
 		Published:   time.Date(2026, 9, 21, 9, 56, 9, 0, time.UTC),
@@ -309,7 +308,7 @@ func TestFormatAdvisoryBoundsHeaderFields(t *testing.T) {
 	assertEscaped(t, msg)
 
 	psa := sampleAdvisory()
-	psa.Kind, psa.ID, psa.Title = KindPSA, "PSA-2026-01-01", big
+	psa.ID, psa.Title = "PSA-2026-01-01", big
 	if m := FormatAdvisory(psa); len(m) > telegram.MaxMessageBytes {
 		t.Errorf("PSA message too long: %d bytes", len(m))
 	}

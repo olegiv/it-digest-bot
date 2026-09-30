@@ -136,33 +136,62 @@ type Result struct {
 	Items []ItemResult
 }
 
+// Outcome is the terminal state of one candidate in a Run. The zero value
+// means the candidate failed before reaching one, so an item that fell out of
+// the flow early is reported honestly rather than as a success with no flag.
+type Outcome uint8
+
+const (
+	OutcomeError    Outcome = iota // validation, store, render or send failure; see the Run error
+	OutcomePosted                  // announcement sent and recorded
+	OutcomeSeen                    // already in releases_seen
+	OutcomeDeferred                // the source asked to wait (ErrDeferred)
+	OutcomeSeeded                  // recorded as history on a source's first run, not posted
+	OutcomeCapped                  // unseen, but left for a later run because MaxPostsPerRun was reached
+)
+
+var outcomeNames = [...]string{"error", "posted", "seen", "deferred", "seeded", "capped"}
+
+func (o Outcome) String() string {
+	if int(o) < len(outcomeNames) {
+		return outcomeNames[o]
+	}
+	return fmt.Sprintf("outcome(%d)", uint8(o))
+}
+
 // ItemResult records what happened to one candidate.
 type ItemResult struct {
 	Source    string
 	Package   string
 	Version   string
-	Posted    bool
-	Seen      bool
-	Deferred  bool
-	Seeded    bool // recorded as history on a source's first run, not posted
-	Capped    bool // unseen, but left for a later run because MaxPostsPerRun was reached
-	MessageID int64
+	Outcome   Outcome
+	MessageID int64 // set for OutcomePosted, and for OutcomeSeeded when a notice was sent
 }
 
-// CappedCount returns the number of unseen candidates left for a later run
-// because the per-run post limit was reached.
-func (r *Result) CappedCount() int {
+// Count returns the number of items that ended in the given outcome.
+func (r *Result) Count(o Outcome) int {
 	if r == nil {
 		return 0
 	}
 	n := 0
 	for _, item := range r.Items {
-		if item.Capped {
+		if item.Outcome == o {
 			n++
 		}
 	}
 	return n
 }
+
+// PostedCount returns the number of candidates posted in this run.
+func (r *Result) PostedCount() int { return r.Count(OutcomePosted) }
+
+// SeededCount returns the number of candidates recorded as history by a
+// Seeder source in this run.
+func (r *Result) SeededCount() int { return r.Count(OutcomeSeeded) }
+
+// CappedCount returns the number of unseen candidates left for a later run
+// because the per-run post limit was reached.
+func (r *Result) CappedCount() int { return r.Count(OutcomeCapped) }
 
 // postLimit resolves MaxPostsPerRun to an effective limit.
 func (r *Runner) postLimit() int {
@@ -174,35 +203,6 @@ func (r *Runner) postLimit() int {
 	default:
 		return r.MaxPostsPerRun
 	}
-}
-
-// PostedCount returns the number of candidates posted in this run.
-func (r *Result) PostedCount() int {
-	if r == nil {
-		return 0
-	}
-	n := 0
-	for _, item := range r.Items {
-		if item.Posted {
-			n++
-		}
-	}
-	return n
-}
-
-// SeededCount returns the number of candidates recorded as history by a
-// Seeder source in this run.
-func (r *Result) SeededCount() int {
-	if r == nil {
-		return 0
-	}
-	n := 0
-	for _, item := range r.Items {
-		if item.Seeded {
-			n++
-		}
-	}
-	return n
 }
 
 // Run executes one release-watcher pass.
@@ -301,7 +301,7 @@ func (r *Runner) handleCandidate(ctx context.Context, cand Candidate, limitReach
 		return item, false, fmt.Errorf("store lookup %s %s: %w", cand.Package, cand.Version, err)
 	}
 	if seen {
-		item.Seen = true
+		item.Outcome = OutcomeSeen
 		log.Info("no new release",
 			"source", cand.Source,
 			"package", cand.Package,
@@ -312,7 +312,7 @@ func (r *Runner) handleCandidate(ctx context.Context, cand Candidate, limitReach
 	// Checked after the seen lookup so only genuinely new releases count,
 	// and before Render so no upstream calls are spent on a capped item.
 	if limitReached {
-		item.Capped = true
+		item.Outcome = OutcomeCapped
 		log.Info("release skipped: per-run send budget exhausted; will be posted on a later run",
 			"source", cand.Source,
 			"package", cand.Package,
@@ -323,7 +323,7 @@ func (r *Runner) handleCandidate(ctx context.Context, cand Candidate, limitReach
 	ann, err := cand.Render(ctx)
 	if err != nil {
 		if errors.Is(err, ErrDeferred) {
-			item.Deferred = true
+			item.Outcome = OutcomeDeferred
 			log.Info("release deferred",
 				"source", cand.Source,
 				"package", cand.Package,
@@ -349,7 +349,7 @@ func (r *Runner) handleCandidate(ctx context.Context, cand Candidate, limitReach
 	if err != nil {
 		return item, true, fmt.Errorf("telegram send %s %s: %w", cand.Package, cand.Version, err)
 	}
-	item.Posted = true
+	item.Outcome = OutcomePosted
 	item.MessageID = msgID
 
 	if err := r.Releases.RecordSeen(ctx, cand.Package, cand.Version, msgID, ann.ReleaseURL); err != nil {
@@ -410,7 +410,7 @@ func (r *Runner) seedIfFirstRun(ctx context.Context, seeder Seeder, sourceName s
 
 	items := make([]ItemResult, 0, len(cands))
 	for _, cand := range cands {
-		items = append(items, ItemResult{Source: cand.Source, Package: cand.Package, Version: cand.Version, Seeded: true})
+		items = append(items, ItemResult{Source: cand.Source, Package: cand.Package, Version: cand.Version, Outcome: OutcomeSeeded})
 	}
 
 	if r.DryRun {
