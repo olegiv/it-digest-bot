@@ -22,6 +22,16 @@ path = "/var/lib/it-digest/state.db"
 npm_package = "@anthropic-ai/claude-code"
 github_repo = "anthropics/claude-code"
 
+# Drupal security advisories (core, contributed projects, PSAs) are posted
+# by `digest watch` as they appear on drupal.org. The source is always on
+# and needs no settings; feed_url only overrides the combined feed
+# (https://www.drupal.org/security/all/rss.xml), e.g. to point at a local
+# fixture while testing. On its very first run the source records the
+# feed's current 50 items as the baseline and posts one notice instead of
+# 50 announcements.
+[drupal_security]
+# feed_url = "https://www.drupal.org/security/all/rss.xml"
+
 [llm]
 model      = "claude-sonnet-4-6"
 max_tokens = 1024

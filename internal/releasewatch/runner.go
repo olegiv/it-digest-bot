@@ -54,7 +54,21 @@ type Candidate struct {
 	Source  string
 	Package string
 	Version string
-	Render  RenderFunc
+	// URL is optional. It is stored as release_url when a Seeder records
+	// history without rendering; normal posts take the URL from Announcement.
+	URL    string
+	Render RenderFunc
+}
+
+// Seeder is an optional Source extension for upstreams whose listing is a
+// window of history (an RSS feed with the last N items) rather than just the
+// latest version. When releases_seen holds no row at all for SeedPackage(),
+// Runner records every current candidate as seen and posts SeedNotice once,
+// instead of announcing dozens of historical items on the first run.
+// SeedNotice may return (nil, nil) to seed silently.
+type Seeder interface {
+	SeedPackage() string
+	SeedNotice(ctx context.Context, cands []Candidate) (*Announcement, error)
 }
 
 // Announcement is the fully rendered output for an unseen candidate.
@@ -98,6 +112,7 @@ type ItemResult struct {
 	Posted    bool
 	Seen      bool
 	Deferred  bool
+	Seeded    bool // recorded as history on a source's first run, not posted
 	MessageID int64
 }
 
@@ -109,6 +124,21 @@ func (r *Result) PostedCount() int {
 	n := 0
 	for _, item := range r.Items {
 		if item.Posted {
+			n++
+		}
+	}
+	return n
+}
+
+// SeededCount returns the number of candidates recorded as history by a
+// Seeder source in this run.
+func (r *Result) SeededCount() int {
+	if r == nil {
+		return 0
+	}
+	n := 0
+	for _, item := range r.Items {
+		if item.Seeded {
 			n++
 		}
 	}
@@ -135,10 +165,24 @@ func (r *Runner) Run(ctx context.Context) (*Result, error) {
 			log.Info("no release candidates", "source", sourceName)
 			continue
 		}
-		for _, cand := range candidates {
-			if cand.Source == "" {
-				cand.Source = sourceName
+		for i := range candidates {
+			if candidates[i].Source == "" {
+				candidates[i].Source = sourceName
 			}
+		}
+
+		if seeder, ok := source.(Seeder); ok {
+			seeded, err := r.seedIfFirstRun(ctx, seeder, sourceName, candidates, res, log)
+			if err != nil {
+				errs = append(errs, fmt.Errorf("source %s seed: %w", sourceName, err))
+				continue
+			}
+			if seeded {
+				continue
+			}
+		}
+
+		for _, cand := range candidates {
 			item, err := r.handleCandidate(ctx, cand, log)
 			res.Items = append(res.Items, item)
 			if err != nil {
@@ -234,6 +278,107 @@ func (r *Runner) handleCandidate(ctx context.Context, cand Candidate, log *slog.
 		"version", cand.Version,
 		"message_id", msgID)
 	return item, nil
+}
+
+// seedIfFirstRun applies the Seeder contract. It returns true when the
+// candidates were consumed as history (or would have been, in dry-run) and
+// must not be handled individually.
+func (r *Runner) seedIfFirstRun(ctx context.Context, seeder Seeder, sourceName string, cands []Candidate, res *Result, log *slog.Logger) (bool, error) {
+	pkg := seeder.SeedPackage()
+	if pkg == "" {
+		return false, errors.New("seed package is required")
+	}
+	_, err := r.Releases.GetLatestSeen(ctx, pkg)
+	if err == nil {
+		return false, nil // history already recorded: normal per-candidate flow
+	}
+	if !errors.Is(err, store.ErrNotFound) {
+		return false, fmt.Errorf("store lookup %s: %w", pkg, err)
+	}
+
+	ann, err := seeder.SeedNotice(ctx, cands)
+	if err != nil {
+		return false, fmt.Errorf("render seed notice: %w", err)
+	}
+	if ann != nil && ann.Text == "" {
+		ann = nil
+	}
+
+	items := make([]ItemResult, 0, len(cands))
+	for _, cand := range cands {
+		items = append(items, ItemResult{Source: cand.Source, Package: cand.Package, Version: cand.Version, Seeded: true})
+	}
+
+	if r.DryRun {
+		r.printDrySeed(sourceName, cands, ann, log)
+		res.Items = append(res.Items, items...)
+		return true, nil
+	}
+
+	var msgID int64
+	if ann != nil {
+		msgID, err = r.Bot.SendMessage(ctx, r.Channel, ann.Text, telegram.ParseModeMarkdownV2)
+		if err != nil {
+			return false, fmt.Errorf("telegram send seed notice: %w", err)
+		}
+	}
+
+	for _, cand := range cands {
+		if err := r.Releases.RecordSeen(ctx, cand.Package, cand.Version, msgID, cand.URL); err != nil {
+			return false, fmt.Errorf("record seeded %s %s: %w", cand.Package, cand.Version, err)
+		}
+	}
+	for i := range items {
+		items[i].MessageID = msgID
+	}
+	res.Items = append(res.Items, items...)
+
+	payload, err := json.Marshal(map[string]any{
+		"source":            sourceName,
+		"package":           pkg,
+		"count":             len(cands),
+		"notice_posted":     ann != nil,
+		"notice_message_id": msgID,
+	})
+	if err != nil {
+		return true, fmt.Errorf("marshal seed payload %s: %w", pkg, err)
+	}
+	if _, err := r.Posts.Record(ctx, store.KindSeed, string(payload), msgID); err != nil {
+		log.Warn("record posts_log failed",
+			"source", sourceName,
+			"package", pkg,
+			"kind", store.KindSeed,
+			"err", err)
+	}
+
+	log.Info("seeded source history",
+		"source", sourceName,
+		"package", pkg,
+		"count", len(cands),
+		"notice_posted", ann != nil,
+		"message_id", msgID)
+	return true, nil
+}
+
+func (r *Runner) printDrySeed(sourceName string, cands []Candidate, ann *Announcement, log *slog.Logger) {
+	out := r.DryOut
+	if out == nil {
+		out = os.Stdout
+	}
+	log.Info("dry-run: first run would seed source history; no Telegram send, no DB writes",
+		"source", sourceName,
+		"count", len(cands),
+		"notice_posted", ann != nil)
+	_, _ = fmt.Fprintf(out, "\n---- SEED %s - would record %d candidates as seen ----\n", sourceName, len(cands))
+	for _, cand := range cands {
+		_, _ = fmt.Fprintf(out, "  %s %s\n", cand.Package, cand.Version)
+	}
+	if ann != nil {
+		_, _ = fmt.Fprintf(out, "---- SEED NOTICE - %d bytes ----\n%s\n", len(ann.Text), ann.Text)
+	} else {
+		_, _ = fmt.Fprint(out, "---- SEED NOTICE - none (silent seed) ----\n")
+	}
+	_, _ = fmt.Fprint(out, "---- END DRY-RUN ----\n")
 }
 
 func (r *Runner) payload(cand Candidate, ann *Announcement) map[string]any {

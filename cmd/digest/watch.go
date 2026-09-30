@@ -2,10 +2,14 @@ package main
 
 import (
 	"fmt"
+	"log/slog"
 
 	"github.com/spf13/cobra"
 
+	"github.com/olegiv/it-digest-bot/internal/config"
+
 	"github.com/olegiv/it-digest-bot/internal/claudecode"
+	"github.com/olegiv/it-digest-bot/internal/drupalsec"
 	"github.com/olegiv/it-digest-bot/internal/gorelease"
 	"github.com/olegiv/it-digest-bot/internal/httpx"
 	"github.com/olegiv/it-digest-bot/internal/releasewatch"
@@ -17,7 +21,7 @@ func newWatchCmd(flags *rootFlags) *cobra.Command {
 	var dryRun bool
 	cmd := &cobra.Command{
 		Use:   "watch",
-		Short: "Check Claude Code and Go releases and post them",
+		Short: "Check Claude Code, Go and Drupal security releases and post them",
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			ctx := cmd.Context()
 			cfg, log, err := loadConfigAndLogger(flags.configPath, "watch")
@@ -49,6 +53,7 @@ func newWatchCmd(flags *rootFlags) *cobra.Command {
 						Logger:     log,
 					},
 					gorelease.NewSource(apiHTTP),
+					drupalSecuritySource(cfg, apiHTTP, log),
 				},
 				Channel:  cfg.Telegram.Channel,
 				Bot:      telegram.New(cfg.Telegram.BotToken, telegram.WithHTTPClient(tgHTTP)),
@@ -66,6 +71,7 @@ func newWatchCmd(flags *rootFlags) *cobra.Command {
 			log.Info("watch complete",
 				"candidates", len(res.Items),
 				"posted", res.PostedCount(),
+				"seeded", res.SeededCount(),
 				"dry_run", dryRun)
 			return nil
 		},
@@ -73,4 +79,13 @@ func newWatchCmd(flags *rootFlags) *cobra.Command {
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false,
 		"fetch all release sources and render messages to stdout, but don't post or touch the DB")
 	return cmd
+}
+
+// drupalSecuritySource wires the drupal.org advisory source, honouring the
+// optional feed URL override from config.
+func drupalSecuritySource(cfg *config.Config, h *httpx.Client, log *slog.Logger) *drupalsec.Source {
+	src := drupalsec.NewSource(h)
+	src.Client.WithFeedURL(cfg.DrupalSecurity.FeedURL)
+	src.Logger = log
+	return src
 }

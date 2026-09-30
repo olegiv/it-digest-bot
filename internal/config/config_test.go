@@ -149,3 +149,50 @@ func TestValidateForDailyRequiresFeeds(t *testing.T) {
 		t.Errorf("expected feed-required error, got %v", err)
 	}
 }
+
+func TestLoadDrupalSecurityFeedURL(t *testing.T) {
+	t.Setenv(EnvTelegramBotToken, "tg-stub")
+
+	tests := []struct {
+		name    string
+		feedURL string
+		wantErr string
+	}{
+		{name: "section absent", feedURL: "", wantErr: ""},
+		{name: "https override", feedURL: "https://mirror.example.org/security/all/rss.xml", wantErr: ""},
+		{name: "loopback http for fixtures", feedURL: "http://127.0.0.1:8000/feed.xml", wantErr: ""},
+		{name: "localhost http for fixtures", feedURL: "http://localhost:8000/feed.xml", wantErr: ""},
+		{name: "remote http rejected", feedURL: "http://example.org/feed.xml", wantErr: "drupal_security.feed_url must use https"},
+		{name: "file scheme rejected", feedURL: "file:///etc/passwd", wantErr: "drupal_security.feed_url must use https"},
+		{name: "missing host rejected", feedURL: "https:///feed.xml", wantErr: "drupal_security.feed_url must include a host"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			content := validTOML
+			if tt.feedURL != "" {
+				content += "\n[drupal_security]\nfeed_url = \"" + tt.feedURL + "\"\n"
+			}
+			cfg, err := Load(writeConfig(t, content))
+			if tt.wantErr == "" {
+				if err != nil {
+					t.Fatalf("Load: %v", err)
+				}
+				if cfg.DrupalSecurity.FeedURL != tt.feedURL {
+					t.Errorf("feed_url = %q, want %q", cfg.DrupalSecurity.FeedURL, tt.feedURL)
+				}
+				return
+			}
+			if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
+				t.Fatalf("expected error containing %q, got %v", tt.wantErr, err)
+			}
+		})
+	}
+}
+
+func TestLoadRejectsUnknownDrupalSecurityKey(t *testing.T) {
+	t.Setenv(EnvTelegramBotToken, "tg-stub")
+	p := writeConfig(t, validTOML+"\n[drupal_security]\nenabled = true\n")
+	if _, err := Load(p); err == nil || !strings.Contains(err.Error(), "unknown config keys") {
+		t.Fatalf("expected unknown-key error, got %v", err)
+	}
+}

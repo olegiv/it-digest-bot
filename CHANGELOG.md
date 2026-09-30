@@ -7,6 +7,33 @@ and this project adheres to [Semantic Versioning 2.0.0](https://semver.org/spec/
 
 ## [Unreleased]
 
+### Added
+
+#### `digest watch`
+
+- Now also monitors drupal.org security advisories — Drupal core,
+  contributed projects and public service announcements — from the
+  combined feed `https://www.drupal.org/security/all/rss.xml`. Each
+  advisory not yet in `releases_seen` (package `drupal-security`,
+  version = advisory ID such as `SA-CONTRIB-2026-191`) is posted as
+  one MarkdownV2 message with risk level and score, vulnerability
+  type, affected versions, CVEs, a description excerpt and the
+  upgrade steps, oldest first. Deterministic: no LLM call. New
+  package `internal/drupalsec`; optional `[drupal_security] feed_url`
+  override in `config.toml` (`https`, or `http` for `localhost`
+  fixtures).
+
+#### Release watcher
+
+- New optional `releasewatch.Seeder` source extension for upstreams
+  that list a window of history. When `releases_seen` has no row for
+  the source's package, the runner records every current candidate
+  as seen and posts the source's notice once (or nothing, if the
+  source returns none) instead of announcing dozens of historical
+  items on the first run. `Candidate.URL` is stored as `release_url`
+  for seeded rows; seeds are audited in `posts_log` with kind `seed`;
+  `--dry-run` prints a `SEED` block and writes nothing.
+
 ### Fixed
 
 #### Daily digest LLM JSON output
