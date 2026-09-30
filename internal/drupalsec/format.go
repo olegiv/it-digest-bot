@@ -31,8 +31,13 @@ func FormatAdvisory(a *Advisory) string {
 	return text
 }
 
+// esc is the escaper for every feed-derived string. It must be the plain
+// variant: drupal.org content is untrusted input, and the construct-preserving
+// telegram.EscapeMarkdownV2 would let a `[text](url)` or backtick span in an
+// advisory become live markup in the channel.
+var esc = telegram.EscapeMarkdownV2Plain
+
 func render(a *Advisory, withDescription, withSolution bool) string {
-	esc := telegram.EscapeMarkdownV2
 	var sb strings.Builder
 
 	id := a.ID
@@ -87,7 +92,6 @@ func render(a *Advisory, withDescription, withSolution bool) string {
 // FormatSeedNotice renders the one-off post made when the source records the
 // feed's existing history instead of announcing every historical item.
 func FormatSeedNotice(count int, newest *Advisory) string {
-	esc := telegram.EscapeMarkdownV2
 	var sb strings.Builder
 	sb.WriteString("🛡️ *Drupal security advisories* are now tracked here\\.\n\n")
 	fmt.Fprintf(&sb, "Recorded %s currently listed on drupal\\.org as the baseline", esc(plural(count, "advisory", "advisories")))
@@ -108,7 +112,7 @@ func writeProjectLine(sb *strings.Builder, a *Advisory) {
 	if name == "" {
 		name = a.Title
 	}
-	fmt.Fprintf(sb, "*%s*", telegram.EscapeMarkdownV2(name))
+	fmt.Fprintf(sb, "*%s*", esc(name))
 	if a.ProjectMachineName != "" && a.ProjectMachineName != name {
 		fmt.Fprintf(sb, " \\(`%s`\\)", telegram.EscapeMarkdownV2Code(a.ProjectMachineName))
 	}

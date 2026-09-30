@@ -323,10 +323,14 @@ func (r *Runner) seedIfFirstRun(ctx context.Context, seeder Seeder, sourceName s
 		}
 	}
 
+	// One transaction: a partially recorded history would make the next run
+	// skip seeding and announce every leftover item individually.
+	rows := make([]store.SeenRelease, 0, len(cands))
 	for _, cand := range cands {
-		if err := r.Releases.RecordSeen(ctx, cand.Package, cand.Version, msgID, cand.URL); err != nil {
-			return false, fmt.Errorf("record seeded %s %s: %w", cand.Package, cand.Version, err)
-		}
+		rows = append(rows, store.SeenRelease{Package: cand.Package, Version: cand.Version, ReleaseURL: cand.URL})
+	}
+	if err := r.Releases.RecordSeenBatch(ctx, rows, msgID); err != nil {
+		return false, fmt.Errorf("record seeded history %s: %w", pkg, err)
 	}
 	for i := range items {
 		items[i].MessageID = msgID

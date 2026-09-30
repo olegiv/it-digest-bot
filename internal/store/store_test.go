@@ -120,6 +120,68 @@ func TestReleasesLifecycle(t *testing.T) {
 	}
 }
 
+func TestReleasesRecordSeenBatch(t *testing.T) {
+	t.Parallel()
+	s := openMemory(t)
+	ctx := context.Background()
+
+	// Empty batch is a no-op and must not open a transaction that errors.
+	if err := s.Releases.RecordSeenBatch(ctx, nil, 7); err != nil {
+		t.Fatalf("empty batch: %v", err)
+	}
+	if _, err := s.Releases.GetLatestSeen(ctx, "feed"); err != ErrNotFound {
+		t.Fatalf("empty batch wrote rows: %v", err)
+	}
+
+	// An existing row must survive (OR IGNORE) and the rest be inserted
+	// with the shared message id.
+	if err := s.Releases.RecordSeen(ctx, "feed", "b", 1, "https://old.example/b"); err != nil {
+		t.Fatalf("RecordSeen: %v", err)
+	}
+	rows := []SeenRelease{
+		{Package: "feed", Version: "a", ReleaseURL: "https://example.com/a"},
+		{Package: "feed", Version: "b", ReleaseURL: "https://example.com/b"},
+		{Package: "feed", Version: "c"},
+	}
+	if err := s.Releases.RecordSeenBatch(ctx, rows, 42); err != nil {
+		t.Fatalf("RecordSeenBatch: %v", err)
+	}
+	for _, v := range []string{"a", "b", "c"} {
+		seen, err := s.Releases.HasSeen(ctx, "feed", v)
+		if err != nil || !seen {
+			t.Errorf("version %s not recorded (%v)", v, err)
+		}
+	}
+	var msgID, url interface{}
+	if err := s.db.QueryRowContext(ctx,
+		`SELECT tg_message_id, release_url FROM releases_seen WHERE package = 'feed' AND version = 'b'`).
+		Scan(&msgID, &url); err != nil {
+		t.Fatalf("query b: %v", err)
+	}
+	if msgID != int64(1) || url != "https://old.example/b" {
+		t.Errorf("OR IGNORE overwrote existing row: msg=%v url=%v", msgID, url)
+	}
+	if err := s.db.QueryRowContext(ctx,
+		`SELECT tg_message_id, release_url FROM releases_seen WHERE package = 'feed' AND version = 'c'`).
+		Scan(&msgID, &url); err != nil {
+		t.Fatalf("query c: %v", err)
+	}
+	if msgID != int64(42) || url != nil {
+		t.Errorf("row c: msg=%v url=%v, want 42 and NULL", msgID, url)
+	}
+
+	// A cancelled context fails the whole batch and leaves nothing behind.
+	cancelled, cancel := context.WithCancel(ctx)
+	cancel()
+	err := s.Releases.RecordSeenBatch(cancelled, []SeenRelease{{Package: "feed2", Version: "x"}, {Package: "feed2", Version: "y"}}, 0)
+	if err == nil {
+		t.Fatal("expected error from cancelled context")
+	}
+	if _, err := s.Releases.GetLatestSeen(ctx, "feed2"); err != ErrNotFound {
+		t.Errorf("failed batch left rows behind: %v", err)
+	}
+}
+
 func TestReleasesHasSeen(t *testing.T) {
 	t.Parallel()
 	s := openMemory(t)

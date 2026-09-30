@@ -78,6 +78,50 @@ func (r *Releases) RecordSeen(ctx context.Context, pkg, version string, tgMessag
 	return nil
 }
 
+// SeenRelease is one row for RecordSeenBatch.
+type SeenRelease struct {
+	Package    string
+	Version    string
+	ReleaseURL string
+}
+
+// RecordSeenBatch persists several releases in a single transaction so the
+// write is all-or-nothing. Runner uses it for a Seeder's first-run history:
+// a partial batch would leave a releases_seen row behind, make the next run
+// skip seeding, and post every unrecorded historical item individually.
+// Every row gets the same tgMessageID (the seed notice, or 0 for none);
+// (package, version) duplicates are ignored as in RecordSeen.
+func (r *Releases) RecordSeenBatch(ctx context.Context, rows []SeenRelease, tgMessageID int64) error {
+	if len(rows) == 0 {
+		return nil
+	}
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin releases_seen batch: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	stmt, err := tx.PrepareContext(ctx, `
+        INSERT OR IGNORE INTO releases_seen
+            (package, version, tg_message_id, release_url)
+        VALUES (?, ?, ?, ?)`)
+	if err != nil {
+		return fmt.Errorf("prepare releases_seen batch: %w", err)
+	}
+	defer func() { _ = stmt.Close() }()
+
+	msgID := nullInt64(tgMessageID)
+	for _, row := range rows {
+		if _, err := stmt.ExecContext(ctx, row.Package, row.Version, msgID, nullString(row.ReleaseURL)); err != nil {
+			return fmt.Errorf("insert releases_seen %s %s: %w", row.Package, row.Version, err)
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit releases_seen batch: %w", err)
+	}
+	return nil
+}
+
 func nullInt64(v int64) sql.NullInt64 {
 	if v == 0 {
 		return sql.NullInt64{}

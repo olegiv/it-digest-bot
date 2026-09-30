@@ -32,7 +32,18 @@ and this project adheres to [Semantic Versioning 2.0.0](https://semver.org/spec/
   source returns none) instead of announcing dozens of historical
   items on the first run. `Candidate.URL` is stored as `release_url`
   for seeded rows; seeds are audited in `posts_log` with kind `seed`;
-  `--dry-run` prints a `SEED` block and writes nothing.
+  `--dry-run` prints a `SEED` block and writes nothing. The history is
+  written in one transaction (`store.Releases.RecordSeenBatch`), so a
+  failed first run leaves no partial state that would turn the next
+  run into dozens of individual posts.
+
+#### Telegram
+
+- `telegram.EscapeMarkdownV2Plain` escapes every MarkdownV2 special
+  character without preserving links or code spans. `internal/drupalsec`
+  uses it for all feed-derived text, so markup inside an upstream
+  advisory (a `[text](url)` link, a backtick span) renders as literal
+  text instead of live markup in the channel.
 
 ### Fixed
 

@@ -41,11 +41,15 @@ type fakeSender struct {
 	calls    int
 	messages []string
 	err      error
+	onSend   func() // optional hook, run before the result is decided
 }
 
 func (s *fakeSender) SendMessage(_ context.Context, _ string, text string, mode telegram.ParseMode) (int64, error) {
 	s.calls++
 	s.messages = append(s.messages, text)
+	if s.onSend != nil {
+		s.onSend()
+	}
 	if mode != telegram.ParseModeMarkdownV2 {
 		return 0, errors.New("unexpected parse mode")
 	}
@@ -540,6 +544,50 @@ func TestRunnerSeedNoticeSendFailureRecordsNothing(t *testing.T) {
 	}
 	if res.SeededCount() != 2 || res.PostedCount() != 0 || bot.calls != 2 {
 		t.Errorf("retry seeded %d posted %d calls %d", res.SeededCount(), res.PostedCount(), bot.calls)
+	}
+}
+
+func TestRunnerSeedRecordFailureLeavesNoHistory(t *testing.T) {
+	t.Parallel()
+
+	// The notice goes out, then the store write fails (simulated by
+	// cancelling the run context from inside the send). Nothing may be
+	// recorded: a partial history would turn the next run into a flood of
+	// individual posts for every item the seed did not reach.
+	st := openStore(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	bot := &fakeSender{onSend: cancel}
+	src := &fakeSeeder{
+		fakeSource: fakeSource{name: "feed", candidates: seedCandidates("feed", "pkg-feed", "1", "2", "3")},
+		pkg:        "pkg-feed",
+		notice:     &Announcement{Text: "notice"},
+	}
+	r := &Runner{Sources: []Source{src}, Channel: "@ch", Bot: bot, Releases: st.Releases, Posts: st.Posts}
+
+	res, err := r.Run(ctx)
+	if err == nil || !strings.Contains(err.Error(), "record seeded history pkg-feed:") {
+		t.Fatalf("expected seed record error, got %v", err)
+	}
+	if bot.calls != 1 {
+		t.Errorf("telegram calls = %d, want the single notice", bot.calls)
+	}
+	if res.SeededCount() != 0 || len(res.Items) != 0 {
+		t.Errorf("failed seed produced items: %+v", res.Items)
+	}
+	if _, err := st.Releases.GetLatestSeen(context.Background(), "pkg-feed"); !errors.Is(err, store.ErrNotFound) {
+		t.Errorf("failed seed left releases_seen rows behind: %v", err)
+	}
+
+	// Next run seeds again (one notice, no individual posts) instead of
+	// announcing history.
+	bot.onSend = nil
+	res, err = r.Run(context.Background())
+	if err != nil {
+		t.Fatalf("retry Run: %v", err)
+	}
+	if res.SeededCount() != 3 || res.PostedCount() != 0 || bot.calls != 2 {
+		t.Errorf("retry seeded %d posted %d calls %d, want 3/0/2", res.SeededCount(), res.PostedCount(), bot.calls)
 	}
 }
 
