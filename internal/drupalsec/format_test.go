@@ -84,7 +84,7 @@ func TestFormatAdvisoryRiskEmoji(t *testing.T) {
 		a := sampleAdvisory()
 		a.RiskLabel = label
 		if msg := FormatAdvisory(a); !strings.HasPrefix(msg, emoji+" *Drupal security advisory*") {
-			t.Errorf("risk %q: message starts with %q", label, msg[:30])
+			t.Errorf("risk %q: message starts with %.30q", label, msg)
 		}
 	}
 }
@@ -274,6 +274,55 @@ func TestFormatAdvisoryBoundsHeaderFields(t *testing.T) {
 		t.Errorf("seed notice too long: %d bytes", len(notice))
 	}
 	assertEscaped(t, notice)
+}
+
+// TestFormatAdvisoryTruncatedDescriptionNeverEndsInBackslash pins the fix
+// for a cut landing between an escape backslash and its character: with the
+// right alignment the generic truncation helper produced "\…", which Telegram
+// rejects. Shifting the text by 0-2 bytes exercises every alignment.
+func TestFormatAdvisoryTruncatedDescriptionNeverEndsInBackslash(t *testing.T) {
+	t.Parallel()
+	for shift := range 3 {
+		a := sampleAdvisory()
+		a.Description = strings.Repeat("x", shift) + strings.Repeat("a.", 400) // no line breaks
+		msg := FormatAdvisory(a)
+		for _, bad := range []string{`\…`, "\\\n"} {
+			if strings.Contains(msg, bad) {
+				t.Errorf("shift %d: dangling backslash in:\n%s", shift, msg)
+			}
+		}
+		assertEscaped(t, msg)
+	}
+}
+
+// TestFormatAdvisoryCapsSolutionLines guards against one long paragraph
+// dropping the whole Solution block: the line is shortened instead.
+func TestFormatAdvisoryCapsSolutionLines(t *testing.T) {
+	t.Parallel()
+	a := sampleAdvisory()
+	a.Solution = "Install the latest version:\n• " + strings.Repeat("upgrade steps ", 200) + "\n• Clear caches."
+	msg := FormatAdvisory(a)
+	if !strings.Contains(msg, "🛠 *Solution*") || !strings.Contains(msg, "• Clear caches\\.") {
+		t.Fatalf("solution block dropped:\n%s", msg)
+	}
+	if !strings.Contains(msg, "…") {
+		t.Errorf("long solution line should be shortened with an ellipsis:\n%s", msg)
+	}
+	if len(msg) > telegram.MaxMessageBytes {
+		t.Errorf("message too long: %d bytes", len(msg))
+	}
+}
+
+func TestTruncateEscaped(t *testing.T) {
+	t.Parallel()
+	if got := truncateEscaped("short", 10); got != "short" {
+		t.Errorf("short input changed: %q", got)
+	}
+	// Cut would land right after the backslash: it must be dropped.
+	got := truncateEscaped(`ab\.cd\.ef`, 7) // budget 4 → "ab\." → "ab\" dangling → "ab"
+	if strings.HasSuffix(strings.TrimSuffix(got, "…"), `\`) || len(got) > 7 {
+		t.Errorf("truncateEscaped left a dangling backslash or overflowed: %q", got)
+	}
 }
 
 func TestCapField(t *testing.T) {

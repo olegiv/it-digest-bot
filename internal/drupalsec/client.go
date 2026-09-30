@@ -59,7 +59,7 @@ type Advisory struct {
 	Kind               Kind      // derived from ID
 	Title              string    // RSS title
 	Link               string    // advisory page
-	Published          time.Time // RSS pubDate; zero when missing or unparsable
+	Published          time.Time // RSS pubDate, else updated; zero when both are missing or unparsable
 	ProjectName        string    // "Drupal core", "Webform"; empty for PSAs
 	ProjectMachineName string    // "drupal", "webform"; empty for PSAs
 	RiskLabel          string    // "Moderately critical"; empty for PSAs
@@ -143,9 +143,10 @@ func (c *Client) Fetch(ctx context.Context) ([]Advisory, []string, error) {
 	return ParseFeed(body)
 }
 
-// ParseFeed decodes the RSS document. Items without a guid, link or title
-// are skipped and reported in the returned warnings; a malformed document is
-// an error.
+// ParseFeed decodes the RSS document. Items without a guid or title, or
+// whose link is not an https drupal.org URL of at most MaxLinkBytes (see
+// validAdvisoryLink), are skipped and reported in the returned warnings; a
+// malformed document is an error.
 func ParseFeed(data []byte) ([]Advisory, []string, error) {
 	feed, err := gofeed.NewParser().Parse(bytes.NewReader(data))
 	if err != nil {
@@ -166,7 +167,7 @@ func ParseFeed(data []byte) ([]Advisory, []string, error) {
 			warnings = append(warnings, fmt.Sprintf("item %d (%q) skipped: missing link", i, title))
 			continue
 		case !validAdvisoryLink(link):
-			warnings = append(warnings, fmt.Sprintf("item %d (%q) skipped: link %q is not an https %s URL", i, title, link, advisoryHost))
+			warnings = append(warnings, fmt.Sprintf("item %d (%q) skipped: link %.80q is not an https %s URL of at most %d bytes", i, title, link, advisoryHost, MaxLinkBytes))
 			continue
 		case title == "":
 			warnings = append(warnings, fmt.Sprintf("item %d (%s) skipped: missing title", i, guid))
@@ -178,9 +179,12 @@ func ParseFeed(data []byte) ([]Advisory, []string, error) {
 }
 
 // validAdvisoryLink reports whether link is safe to render as the advisory
-// link: https, on drupal.org or a subdomain, without credentials, whitespace
-// or control characters.
+// link: https, on drupal.org or a subdomain, at most MaxLinkBytes, without
+// credentials, whitespace or control characters.
 func validAdvisoryLink(link string) bool {
+	if len(link) > MaxLinkBytes {
+		return false
+	}
 	if strings.ContainsFunc(link, func(r rune) bool { return unicode.IsControl(r) || unicode.IsSpace(r) }) {
 		return false
 	}
@@ -255,6 +259,35 @@ func parseItem(item *gofeed.Item, guid, link, title string) Advisory {
 		a.Description = htmlToText(raw, false)
 	}
 	return a
+}
+
+// MissingFields lists the fields every well-formed drupal.org item carries
+// but this advisory lacks. A non-empty result means the feed markup has
+// drifted from what parseDescription and ParseAdvisoryID expect; the post
+// still goes out with what was parsed, so callers should log it.
+func (a *Advisory) MissingFields() []string {
+	var missing []string
+	if a.ID == "" {
+		missing = append(missing, "id")
+	}
+	if a.Published.IsZero() {
+		missing = append(missing, "published")
+	}
+	if a.Kind == KindPSA {
+		return missing
+	}
+	for _, f := range []struct{ name, value string }{
+		{"project", a.ProjectName},
+		{"risk", a.RiskLabel},
+		{"vulnerability", a.Vulnerability},
+		{"affected_versions", a.AffectedVersions},
+		{"solution", a.Solution},
+	} {
+		if f.value == "" {
+			missing = append(missing, f.name)
+		}
+	}
+	return missing
 }
 
 // ParseAdvisoryID extracts the advisory identifier, preferring the link slug

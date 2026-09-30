@@ -30,7 +30,13 @@ and this project adheres to [Semantic Versioning 2.0.0](https://semver.org/spec/
   credentials, whitespace or control characters; other items are
   skipped with a warning. Advisory HTML is converted to text with the
   `golang.org/x/net/html` parser, so `script`/`style` bodies are
-  dropped instead of leaking into posts.
+  dropped instead of leaking into posts. Each solution line is capped
+  so one long paragraph is shortened rather than dropping the whole
+  Solution block, and a truncated description can no longer end in a
+  lone escape backslash (which Telegram rejects). Advisories that parse
+  with missing fields (no ID, risk, versions or solution) are still
+  posted but logged with a warning, so a drupal.org markup change is
+  visible in the journal.
 
 #### Release watcher
 
@@ -41,15 +47,18 @@ and this project adheres to [Semantic Versioning 2.0.0](https://semver.org/spec/
   source returns none) instead of announcing dozens of historical
   items on the first run. `Candidate.URL` is stored as `release_url`
   for seeded rows; seeds are audited in `posts_log` with kind `seed`;
-  `--dry-run` prints a `SEED` block and writes nothing.
-- `Runner.MaxPostsPerRun` caps announcements per run across all sources
-  (default 10, `releasewatch.DefaultMaxPostsPerRun`; negative disables).
-  Unseen candidates beyond the cap are left unrecorded and posted on
-  later runs in source order, so a feed that suddenly lists many new
-  items cannot flood the channel in one pass. The history is
-  written in one transaction (`store.Releases.RecordSeenBatch`), so a
-  failed first run leaves no partial state that would turn the next
-  run into dozens of individual posts.
+  `--dry-run` prints a `SEED` block and writes nothing. The history is
+  written in one transaction (`store.Releases.RecordSeenBatch`) after
+  the notice, so a failed first run leaves no partial state that would
+  turn the next run into dozens of individual posts; seeded candidates
+  are validated like posted ones and must carry the seed package.
+- `Runner.MaxPostsPerRun` caps send attempts per run across all sources
+  (default 10, `releasewatch.DefaultMaxPostsPerRun`;
+  `releasewatch.UnlimitedPosts` disables). Unseen candidates beyond the
+  cap are left unrecorded and posted on later runs in source order, so
+  a feed that suddenly lists many new items cannot flood the channel in
+  one pass, and a Telegram outage stops after the cap instead of
+  retrying every release. Seeding is not subject to the cap.
 
 #### Telegram
 

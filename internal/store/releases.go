@@ -67,6 +67,9 @@ func (r *Releases) GetLatestSeen(ctx context.Context, pkg string) (*Release, err
 // RecordSeen persists a newly-posted release. The (package, version) pair
 // is the primary key so repeated inserts are a no-op via OR IGNORE.
 func (r *Releases) RecordSeen(ctx context.Context, pkg, version string, tgMessageID int64, releaseURL string) error {
+	if pkg == "" || version == "" {
+		return errors.New("insert releases_seen: package and version are required")
+	}
 	_, err := r.db.ExecContext(ctx, `
         INSERT OR IGNORE INTO releases_seen
             (package, version, tg_message_id, release_url)
@@ -94,6 +97,11 @@ type SeenRelease struct {
 func (r *Releases) RecordSeenBatch(ctx context.Context, rows []SeenRelease, tgMessageID int64) error {
 	if len(rows) == 0 {
 		return nil
+	}
+	for i, row := range rows {
+		if row.Package == "" || row.Version == "" {
+			return fmt.Errorf("releases_seen batch row %d: package and version are required", i)
+		}
 	}
 	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {

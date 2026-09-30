@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -566,7 +567,7 @@ func TestRunnerSeedRecordFailureLeavesNoHistory(t *testing.T) {
 	r := &Runner{Sources: []Source{src}, Channel: "@ch", Bot: bot, Releases: st.Releases, Posts: st.Posts}
 
 	res, err := r.Run(ctx)
-	if err == nil || !strings.Contains(err.Error(), "record seeded history pkg-feed:") {
+	if err == nil || !strings.Contains(err.Error(), "record seeded history pkg-feed (notice message_id=101 already posted):") {
 		t.Fatalf("expected seed record error, got %v", err)
 	}
 	if bot.calls != 1 {
@@ -692,7 +693,7 @@ func TestRunnerPostCapOverrides(t *testing.T) {
 		t.Parallel()
 		st := openStore(t)
 		bot := &fakeSender{}
-		r := &Runner{Sources: []Source{fakeSource{name: "a", candidates: cands}}, Channel: "@ch", Bot: bot, Releases: st.Releases, Posts: st.Posts, MaxPostsPerRun: -1}
+		r := &Runner{Sources: []Source{fakeSource{name: "a", candidates: cands}}, Channel: "@ch", Bot: bot, Releases: st.Releases, Posts: st.Posts, MaxPostsPerRun: UnlimitedPosts}
 		res, err := r.Run(context.Background())
 		if err != nil {
 			t.Fatalf("Run: %v", err)
@@ -722,6 +723,168 @@ func TestRunnerPostCapOverrides(t *testing.T) {
 			t.Errorf("dry-run rendered %d announcements, want 2:\n%s", got, out.String())
 		}
 	})
+}
+
+func TestRunnerSeedBypassesPostCap(t *testing.T) {
+	t.Parallel()
+
+	// A first run with more history than the cap must still record all of
+	// it: applying the cap to seeding would flood the leftovers out over the
+	// following runs, the exact failure the Seeder exists to prevent.
+	st := openStore(t)
+	bot := &fakeSender{}
+	versions := make([]string, 15)
+	for i := range versions {
+		versions[i] = fmt.Sprint(i + 1)
+	}
+	src := &fakeSeeder{
+		fakeSource: fakeSource{name: "feed", candidates: seedCandidates("feed", "pkg-feed", versions...)},
+		pkg:        "pkg-feed",
+		notice:     &Announcement{Text: "notice"},
+	}
+	r := &Runner{Sources: []Source{src}, Channel: "@ch", Bot: bot, Releases: st.Releases, Posts: st.Posts, MaxPostsPerRun: 10}
+
+	res, err := r.Run(context.Background())
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if res.SeededCount() != 15 || res.CappedCount() != 0 || res.PostedCount() != 0 || bot.calls != 1 {
+		t.Fatalf("seeded %d capped %d posted %d calls %d, want 15/0/0/1", res.SeededCount(), res.CappedCount(), res.PostedCount(), bot.calls)
+	}
+}
+
+func TestRunnerCapIgnoresSeenAndDeferred(t *testing.T) {
+	t.Parallel()
+
+	// Ordering contract: the cap is checked after the seen lookup (seen items
+	// are reported as Seen, not Capped) and before Render (a capped item's
+	// Render is never called); a deferral does not consume a slot.
+	st := openStore(t)
+	if err := st.Releases.RecordSeen(context.Background(), "pkg", "seen", 1, ""); err != nil {
+		t.Fatalf("RecordSeen: %v", err)
+	}
+	rendered := map[string]bool{}
+	mk := func(version string, render RenderFunc) Candidate {
+		return Candidate{Source: "a", Package: "pkg", Version: version, Render: func(ctx context.Context) (*Announcement, error) {
+			rendered[version] = true
+			return render(ctx)
+		}}
+	}
+	post := func(version string) RenderFunc {
+		return func(context.Context) (*Announcement, error) { return announcement("pkg", version), nil }
+	}
+	defer_ := func(context.Context) (*Announcement, error) { return nil, Deferf("not yet") }
+
+	bot := &fakeSender{}
+	r := &Runner{
+		Sources: []Source{fakeSource{name: "a", candidates: []Candidate{
+			mk("deferred", defer_), mk("new1", post("new1")), mk("seen", post("seen")), mk("new2", post("new2")),
+		}}},
+		Channel: "@ch", Bot: bot, Releases: st.Releases, Posts: st.Posts, MaxPostsPerRun: 1,
+	}
+	res, err := r.Run(context.Background())
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	want := map[string]string{"deferred": "deferred", "new1": "posted", "seen": "seen", "new2": "capped"}
+	for _, item := range res.Items {
+		got := "none"
+		switch {
+		case item.Posted:
+			got = "posted"
+		case item.Seen:
+			got = "seen"
+		case item.Deferred:
+			got = "deferred"
+		case item.Capped:
+			got = "capped"
+		}
+		if got != want[item.Version] {
+			t.Errorf("%s: outcome %s, want %s", item.Version, got, want[item.Version])
+		}
+	}
+	if bot.calls != 1 || rendered["new2"] || rendered["seen"] {
+		t.Errorf("calls %d rendered %v; capped and seen items must not be rendered", bot.calls, rendered)
+	}
+}
+
+func TestRunnerFailedSendConsumesCapSlot(t *testing.T) {
+	t.Parallel()
+
+	// A Telegram outage must stop after `limit` attempts rather than trying
+	// every unseen release; the leftovers are reported as capped.
+	st := openStore(t)
+	bot := &fakeSender{err: errors.New("telegram down")}
+	r := &Runner{
+		Sources: []Source{fakeSource{name: "a", candidates: seedCandidates("a", "pkg", "1", "2", "3", "4", "5")}},
+		Channel: "@ch", Bot: bot, Releases: st.Releases, Posts: st.Posts, MaxPostsPerRun: 2,
+	}
+	res, err := r.Run(context.Background())
+	if err == nil || strings.Count(err.Error(), "telegram send") != 2 {
+		t.Fatalf("expected two send errors, got %v", err)
+	}
+	if bot.calls != 2 || res.PostedCount() != 0 || res.CappedCount() != 3 {
+		t.Errorf("calls %d posted %d capped %d, want 2/0/3", bot.calls, res.PostedCount(), res.CappedCount())
+	}
+}
+
+func TestRunnerSeedEmptyNoticeIsAnError(t *testing.T) {
+	t.Parallel()
+
+	// (nil, nil) means silent seed; a non-nil Announcement with no Text is a
+	// rendering bug and must fail the seed rather than seed silently.
+	st := openStore(t)
+	bot := &fakeSender{}
+	src := &fakeSeeder{
+		fakeSource: fakeSource{name: "feed", candidates: seedCandidates("feed", "pkg-feed", "1")},
+		pkg:        "pkg-feed",
+		notice:     &Announcement{},
+	}
+	r := &Runner{Sources: []Source{src}, Channel: "@ch", Bot: bot, Releases: st.Releases, Posts: st.Posts}
+	if _, err := r.Run(context.Background()); err == nil || !strings.Contains(err.Error(), "render seed notice: empty announcement") {
+		t.Fatalf("expected empty-announcement error, got %v", err)
+	}
+	if bot.calls != 0 {
+		t.Errorf("sent %d messages", bot.calls)
+	}
+	if _, err := st.Releases.GetLatestSeen(context.Background(), "pkg-feed"); !errors.Is(err, store.ErrNotFound) {
+		t.Errorf("failed seed wrote rows: %v", err)
+	}
+}
+
+func TestRunnerSeedValidatesCandidates(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name    string
+		cands   []Candidate
+		wantErr string
+	}{
+		{name: "empty version", cands: []Candidate{candidate("feed", "pkg-feed", "")}, wantErr: "version is required"},
+		{name: "nil render", cands: []Candidate{{Source: "feed", Package: "pkg-feed", Version: "1"}}, wantErr: "render func is required"},
+		{name: "package mismatch", cands: seedCandidates("feed", "other-pkg", "1"), wantErr: "does not match seed package pkg-feed"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			st := openStore(t)
+			bot := &fakeSender{}
+			src := &fakeSeeder{fakeSource: fakeSource{name: "feed", candidates: tc.cands}, pkg: "pkg-feed", notice: &Announcement{Text: "n"}}
+			r := &Runner{Sources: []Source{src}, Channel: "@ch", Bot: bot, Releases: st.Releases, Posts: st.Posts}
+			_, err := r.Run(context.Background())
+			if err == nil || !strings.Contains(err.Error(), tc.wantErr) {
+				t.Fatalf("expected %q, got %v", tc.wantErr, err)
+			}
+			if bot.calls != 0 {
+				t.Errorf("sent %d messages", bot.calls)
+			}
+			for _, pkg := range []string{"pkg-feed", "other-pkg"} {
+				if _, err := st.Releases.GetLatestSeen(context.Background(), pkg); !errors.Is(err, store.ErrNotFound) {
+					t.Errorf("invalid seed wrote rows for %s: %v", pkg, err)
+				}
+			}
+		})
+	}
 }
 
 func TestRunnerNonSeederSourcePostsHistory(t *testing.T) {

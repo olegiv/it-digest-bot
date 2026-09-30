@@ -50,8 +50,9 @@ type ClaudeCodeConfig struct {
 // DrupalSecurityConfig tunes the drupal.org security advisory source of
 // `digest watch`. The source is always on; the only setting overrides the
 // feed URL (empty = the combined core+contrib+PSA feed built into the
-// source). Plain http is accepted for localhost only, so a fixture can be
-// served locally for testing.
+// source). Plain http is accepted only for localhost or a loopback address,
+// so a fixture can be served locally for testing; credentials, query strings
+// and fragments are rejected (see validateFeedURL).
 type DrupalSecurityConfig struct {
 	FeedURL string `toml:"feed_url"`
 }
@@ -174,7 +175,7 @@ func validateFeedURL(key, raw string) error {
 		return fmt.Errorf("%s is not a valid URL: %w", key, err)
 	}
 	if u.Scheme != "https" && u.Scheme != "http" {
-		return fmt.Errorf("%s must use https (got scheme %q)", key, u.Scheme)
+		return fmt.Errorf("%s must use https, or http for localhost (got scheme %q)", key, u.Scheme)
 	}
 	host := u.Hostname()
 	if host == "" {
@@ -186,7 +187,7 @@ func validateFeedURL(key, raw string) error {
 	if u.RawQuery != "" || u.ForceQuery || u.Fragment != "" {
 		return fmt.Errorf("%s must not contain a query string or fragment", key)
 	}
-	if u.Scheme == "https" || host == "localhost" {
+	if u.Scheme == "https" || strings.EqualFold(host, "localhost") {
 		return nil
 	}
 	if ip := net.ParseIP(host); ip != nil && ip.IsLoopback() {

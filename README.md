@@ -159,7 +159,7 @@ All non-secret settings live in `config.toml`. See [`config.example.toml`](./con
 | `[database]`      | `path`         | yes      | —                        | SQLite file path |
 | `[claudecode]`    | `npm_package`  | yes      | `@anthropic-ai/claude-code` | |
 | `[claudecode]`    | `github_repo`  | yes      | `anthropics/claude-code` | |
-| `[drupal_security]` | `feed_url`   | no       | `https://www.drupal.org/security/all/rss.xml` | Override only; `https`, or `http` for `localhost` fixtures; no credentials, query string or fragment |
+| `[drupal_security]` | `feed_url`   | no       | `https://www.drupal.org/security/all/rss.xml` | Override only; `https`, or `http` for `localhost`/loopback fixtures; no credentials, query string or fragment |
 | `[llm]`           | `model`        | phase 2  | `claude-sonnet-4-6`      | |
 | `[llm]`           | `max_tokens`   | phase 2  | `1024`                   | |
 | `[log]`           | `level`        | no       | `info`                   | `debug` / `info` / `warn` / `error` |

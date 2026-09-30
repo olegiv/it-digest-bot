@@ -170,7 +170,19 @@ func TestReleasesRecordSeenBatch(t *testing.T) {
 		t.Errorf("row c: msg=%v url=%v, want 42 and NULL", msgID, url)
 	}
 
-	// A cancelled context fails the whole batch and leaves nothing behind.
+	// Empty keys are rejected up front: SQLite NOT NULL accepts "", and a
+	// ("pkg", "") row would permanently disable seeding for the package.
+	if err := s.Releases.RecordSeen(ctx, "feed3", "", 0, ""); err == nil {
+		t.Error("RecordSeen accepted an empty version")
+	}
+	if err := s.Releases.RecordSeenBatch(ctx, []SeenRelease{{Package: "feed3", Version: "1"}, {Package: "", Version: "2"}}, 0); err == nil {
+		t.Error("RecordSeenBatch accepted an empty package")
+	}
+	if _, err := s.Releases.GetLatestSeen(ctx, "feed3"); err != ErrNotFound {
+		t.Errorf("rejected batch left rows behind: %v", err)
+	}
+
+	// A cancelled context fails before BeginTx and leaves nothing behind.
 	cancelled, cancel := context.WithCancel(ctx)
 	cancel()
 	err := s.Releases.RecordSeenBatch(cancelled, []SeenRelease{{Package: "feed2", Version: "x"}, {Package: "feed2", Version: "y"}}, 0)

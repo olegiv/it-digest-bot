@@ -65,15 +65,18 @@ func newWatchCmd(flags *rootFlags) *cobra.Command {
 			}
 
 			res, err := runner.Run(ctx)
-			if err != nil {
-				return fmt.Errorf("watcher: %w", err)
-			}
+			// Run returns the partial result alongside any joined error, so
+			// the counts are logged even when one source failed.
 			log.Info("watch complete",
 				"candidates", len(res.Items),
 				"posted", res.PostedCount(),
 				"seeded", res.SeededCount(),
 				"capped", res.CappedCount(),
-				"dry_run", dryRun)
+				"dry_run", dryRun,
+				"failed", err != nil)
+			if err != nil {
+				return fmt.Errorf("watcher: %w", err)
+			}
 			return nil
 		},
 	}

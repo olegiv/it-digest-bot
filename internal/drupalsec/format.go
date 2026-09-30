@@ -13,19 +13,28 @@ const (
 	MaxDescriptionBytes = 700
 	// MaxSolutionLines caps the solution bullet list in a post.
 	MaxSolutionLines = 6
+	// MaxSolutionLineBytes caps each escaped solution line, so one long
+	// paragraph degrades to "…" instead of pushing the whole post over the
+	// limit and losing the entire Solution block to the size fallback.
+	MaxSolutionLineBytes = 400
 	// MaxFieldBytes caps each escaped header field (ID, title, project,
 	// risk, vulnerability, affected versions). Together with MaxCVEBytes and
-	// MaxLinkBytes it bounds the header at roughly 3.3 KiB, so even a
-	// description-less, solution-less post fits telegram.MaxMessageBytes.
+	// MaxLinkBytes it bounds the header at about 3.2 KiB (seven MaxFieldBytes
+	// fields, one MaxCVEBytes list, and a MaxLinkBytes link that URL
+	// escaping can double), so even a description-less, solution-less post
+	// fits telegram.MaxMessageBytes. TestFormatAdvisoryBoundsHeaderFields
+	// pins this.
 	MaxFieldBytes = 256
 	// MaxCVEBytes caps the escaped, comma-joined CVE list.
 	MaxCVEBytes = 512
-	// MaxLinkBytes caps the advisory link. A longer link (drupal.org's are
-	// ~45 bytes) is replaced by SecurityPageURL rather than truncated into
-	// a broken URL.
+	// MaxLinkBytes caps the unescaped item link (drupal.org's are ~45
+	// bytes). ParseFeed skips longer links with a warning; advisoryLink keeps
+	// a SecurityPageURL fallback only as defence in depth for hand-built
+	// advisories.
 	MaxLinkBytes = 512
 
 	hashtags = "\\#Drupal \\#Security"
+	ellipsis = "…"
 )
 
 // FormatAdvisory renders one advisory as a MarkdownV2 post. Dynamic values
@@ -86,14 +95,13 @@ func render(a *Advisory, withDescription, withSolution bool) string {
 	}
 
 	if withDescription && a.Description != "" {
-		desc := telegram.TruncateMarkdownV2(esc(a.Description), "…", MaxDescriptionBytes)
-		fmt.Fprintf(&sb, "\n%s\n", desc)
+		fmt.Fprintf(&sb, "\n%s\n", truncateEscaped(esc(a.Description), MaxDescriptionBytes))
 	}
 	if withSolution {
 		if lines := solutionLines(a.Solution, MaxSolutionLines); len(lines) > 0 {
 			sb.WriteString("\n🛠 *Solution*\n")
 			for _, line := range lines {
-				fmt.Fprintf(&sb, "%s\n", esc(line))
+				fmt.Fprintf(&sb, "%s\n", capField(esc(line), MaxSolutionLineBytes))
 			}
 		}
 	}
@@ -109,7 +117,8 @@ func field(s string) string { return capField(esc(s), MaxFieldBytes) }
 func codeField(s string) string { return capField(telegram.EscapeMarkdownV2Code(s), MaxFieldBytes) }
 
 // advisoryLink returns the item link, or the security landing page when the
-// link is missing or longer than MaxLinkBytes.
+// link is missing or longer than MaxLinkBytes. ParseFeed already rejects both
+// cases, so for parsed advisories this is unreachable defence in depth.
 func advisoryLink(a *Advisory) string {
 	if a.Link == "" || len(a.Link) > MaxLinkBytes {
 		return SecurityPageURL
@@ -117,30 +126,49 @@ func advisoryLink(a *Advisory) string {
 	return a.Link
 }
 
-// capField truncates an already-escaped MarkdownV2 fragment to at most max
+// capField truncates an already-escaped MarkdownV2 fragment to at most limit
 // bytes, appending "…". It cuts on a rune boundary and never leaves a
 // dangling backslash, which would otherwise escape whatever the template
 // places after the field.
-func capField(escaped string, max int) string {
-	if len(escaped) <= max {
+func capField(escaped string, limit int) string {
+	if len(escaped) <= limit {
 		return escaped
 	}
-	const ellipsis = "…"
-	cut := max - len(ellipsis)
+	cut := limit - len(ellipsis)
 	if cut < 0 {
 		cut = 0
 	}
 	for cut > 0 && cut < len(escaped) && !utf8.RuneStart(escaped[cut]) {
 		cut--
 	}
+	return trimDanglingBackslash(escaped[:cut]) + ellipsis
+}
+
+// truncateEscaped shortens an already-escaped MarkdownV2 fragment to at most
+// limit bytes, preferring a paragraph or line boundary like
+// telegram.TruncateMarkdownV2 but, unlike it, never cutting between an
+// escape backslash and the character it escapes. A lone "\" before "…"
+// makes Telegram reject the whole message.
+func truncateEscaped(escaped string, limit int) string {
+	if len(escaped) <= limit {
+		return escaped
+	}
+	cut := telegram.TruncateMarkdownV2(escaped, "", limit-len(ellipsis))
+	return trimDanglingBackslash(cut) + ellipsis
+}
+
+// trimDanglingBackslash drops the final byte of s when s ends in an odd run
+// of backslashes, i.e. when the last backslash escapes a character that was
+// cut off.
+func trimDanglingBackslash(s string) string {
 	trailing := 0
-	for i := cut - 1; i >= 0 && escaped[i] == '\\'; i-- {
+	for i := len(s) - 1; i >= 0 && s[i] == '\\'; i-- {
 		trailing++
 	}
 	if trailing%2 == 1 {
-		cut--
+		return s[:len(s)-1]
 	}
-	return escaped[:cut] + ellipsis
+	return s
 }
 
 // FormatSeedNotice renders the one-off post made when the source records the

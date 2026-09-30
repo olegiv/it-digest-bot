@@ -264,12 +264,48 @@ func TestParseFeedSkipsUnsafeLinks(t *testing.T) {
 		t.Fatalf("warnings = %v, want 3 unsafe-link skips", warnings)
 	}
 	for _, w := range warnings {
-		if !strings.Contains(w, "is not an https drupal.org URL") {
+		if !strings.Contains(w, "is not an https drupal.org URL of at most") {
 			t.Errorf("unexpected warning %q", w)
 		}
 	}
 	if len(advisories) != 1 || advisories[0].ID != "SA-CONTRIB-2026-908" {
 		t.Fatalf("advisories = %+v, want only the drupal.org item", advisories)
+	}
+}
+
+func TestAdvisoryMissingFields(t *testing.T) {
+	t.Parallel()
+	live, _, err := ParseFeed([]byte(liveFeedXML))
+	if err != nil {
+		t.Fatalf("ParseFeed: %v", err)
+	}
+	for _, a := range live {
+		if m := a.MissingFields(); len(m) > 0 {
+			t.Errorf("live fixture %s reports missing fields %v", a.Version(), m)
+		}
+	}
+
+	edge, _, err := ParseFeed(feedWith(edgeItems, unstructuredItem))
+	if err != nil {
+		t.Fatalf("ParseFeed: %v", err)
+	}
+	byVersion := map[string][]string{}
+	for _, a := range edge {
+		byVersion[a.Version()] = a.MissingFields()
+	}
+	if got := strings.Join(byVersion["SA-CONTRIB-2026-802"], ","); got != "published,project,risk,vulnerability,affected_versions,solution" {
+		t.Errorf("empty-description item missing = %q", got)
+	}
+	if got := strings.Join(byVersion["nid-8000003"], ","); !strings.HasPrefix(got, "id,") {
+		t.Errorf("unrecognised-id item missing = %q, want id first", got)
+	}
+	if got := byVersion["SA-CONTRIB-2026-902"]; len(got) != 5 || got[0] != "project" {
+		t.Errorf("unstructured item missing = %v", got)
+	}
+
+	psa := &Advisory{ID: "PSA-2026-01-01", Kind: KindPSA, Title: "t"}
+	if got := psa.MissingFields(); len(got) != 1 || got[0] != "published" {
+		t.Errorf("PSA should only require id and published, got %v", got)
 	}
 }
 
@@ -291,6 +327,8 @@ func TestValidAdvisoryLink(t *testing.T) {
 		{"tg://user?id=1", false},
 		{"https://www.drupal.org/sa\tcore", false},
 		{"https://www.drupal.org/sa core", false},
+		{"https://www.drupal.org/" + strings.Repeat("x", MaxLinkBytes), false},
+		{"https://www.drupal.org/" + strings.Repeat("x", MaxLinkBytes-len("https://www.drupal.org/")), true},
 		{"https://www.drupal.org/sa\ncore", false},
 		{"", false},
 	}

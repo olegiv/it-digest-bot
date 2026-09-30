@@ -23,6 +23,10 @@ import (
 // are posted on later runs in the order the source returned them.
 const DefaultMaxPostsPerRun = 10
 
+// UnlimitedPosts disables the per-run cap when assigned to
+// Runner.MaxPostsPerRun.
+const UnlimitedPosts = -1
+
 // ErrDeferred marks a candidate that should not be posted yet, without
 // failing the whole watcher run.
 var ErrDeferred = errors.New("release deferred")
@@ -59,7 +63,7 @@ type RenderFunc func(context.Context) (*Announcement, error)
 
 // Candidate is a potential upstream release identified by a source.
 type Candidate struct {
-	Source  string
+	Source  string // empty means the source's Name()
 	Package string
 	Version string
 	// URL is optional. It is stored as release_url when a Seeder records
@@ -71,9 +75,20 @@ type Candidate struct {
 // Seeder is an optional Source extension for upstreams whose listing is a
 // window of history (an RSS feed with the last N items) rather than just the
 // latest version. When releases_seen holds no row at all for SeedPackage(),
-// Runner records every current candidate as seen and posts SeedNotice once,
-// instead of announcing dozens of historical items on the first run.
-// SeedNotice may return (nil, nil) to seed silently.
+// Runner posts SeedNotice once and records every current candidate as seen
+// in one transaction, instead of announcing dozens of historical items on
+// the first run. Seeding ignores MaxPostsPerRun.
+//
+// Runner calls SeedNotice at most once per Run, immediately after
+// Candidates, with the slice that call returned; every candidate must carry
+// Package == SeedPackage(). SeedNotice may return (nil, nil) to seed
+// silently; a non-nil Announcement must have Text.
+//
+// Failure semantics: if the notice send fails nothing is recorded and the
+// next run seeds again. If the history write fails after the notice went
+// out, nothing is recorded either and the next run repeats the notice, which
+// is preferred over recording history with no notice or, worse, partial
+// history that would turn the next run into a flood of individual posts.
 type Seeder interface {
 	SeedPackage() string
 	SeedNotice(ctx context.Context, cands []Candidate) (*Announcement, error)
@@ -106,9 +121,12 @@ type Runner struct {
 	DryRun bool
 	DryOut io.Writer
 
-	// MaxPostsPerRun caps the announcements (or dry-run renders) per Run
+	// MaxPostsPerRun caps the send attempts (or dry-run renders) per Run
 	// across all sources. Zero means DefaultMaxPostsPerRun; a negative value
-	// disables the cap.
+	// (UnlimitedPosts) disables the cap. A failed send still consumes a slot,
+	// so a Telegram outage stops after this many attempts instead of trying
+	// every unseen release. A Seeder's one-off notice is not counted. "Zero
+	// posts" is not expressible; use DryRun for that.
 	MaxPostsPerRun int
 }
 
@@ -192,7 +210,7 @@ func (r *Runner) Run(ctx context.Context) (*Result, error) {
 	res := &Result{}
 	var errs []error
 	limit := r.postLimit()
-	posts := 0
+	attempts := 0
 
 	for _, source := range r.Sources {
 		if source == nil {
@@ -226,10 +244,10 @@ func (r *Runner) Run(ctx context.Context) (*Result, error) {
 		}
 
 		for _, cand := range candidates {
-			item, sent, err := r.handleCandidate(ctx, cand, posts >= limit, log)
+			item, attempted, err := r.handleCandidate(ctx, cand, attempts >= limit, log)
 			res.Items = append(res.Items, item)
-			if sent {
-				posts++
+			if attempted {
+				attempts++
 			}
 			if err != nil {
 				errs = append(errs, err)
@@ -238,31 +256,43 @@ func (r *Runner) Run(ctx context.Context) (*Result, error) {
 		}
 	}
 	if n := res.CappedCount(); n > 0 {
-		log.Warn("per-run post limit reached; remaining releases wait for the next run",
+		log.Warn("per-run send budget exhausted; remaining releases wait for the next run",
 			"limit", limit,
-			"posted", posts,
+			"attempted", attempts,
+			"posted", res.PostedCount(),
 			"capped", n)
 	}
 
 	return res, errors.Join(errs...)
 }
 
-// handleCandidate processes one candidate. sent reports whether a message
-// was sent, or would have been in dry-run, so Run can enforce MaxPostsPerRun.
-func (r *Runner) handleCandidate(ctx context.Context, cand Candidate, limitReached bool, log *slog.Logger) (item ItemResult, sent bool, err error) {
+// validateCandidate rejects candidates that cannot be posted or recorded.
+// Both the per-candidate path and the seed path use it, so an empty version
+// can never reach releases_seen (SQLite NOT NULL accepts "").
+func validateCandidate(cand Candidate) error {
+	if cand.Package == "" {
+		return errors.New("release candidate package is required")
+	}
+	if cand.Version == "" {
+		return fmt.Errorf("release candidate %s: version is required", cand.Package)
+	}
+	if cand.Render == nil {
+		return fmt.Errorf("release candidate %s %s: render func is required", cand.Package, cand.Version)
+	}
+	return nil
+}
+
+// handleCandidate processes one candidate. attempted reports whether a send
+// slot was consumed (a send was made, even if it failed, or would have been
+// in dry-run) so Run can enforce MaxPostsPerRun.
+func (r *Runner) handleCandidate(ctx context.Context, cand Candidate, limitReached bool, log *slog.Logger) (item ItemResult, attempted bool, err error) {
 	item = ItemResult{
 		Source:  cand.Source,
 		Package: cand.Package,
 		Version: cand.Version,
 	}
-	if cand.Package == "" {
-		return item, false, errors.New("release candidate package is required")
-	}
-	if cand.Version == "" {
-		return item, false, fmt.Errorf("release candidate %s: version is required", cand.Package)
-	}
-	if cand.Render == nil {
-		return item, false, fmt.Errorf("release candidate %s %s: render func is required", cand.Package, cand.Version)
+	if err := validateCandidate(cand); err != nil {
+		return item, false, err
 	}
 
 	seen, err := r.Releases.HasSeen(ctx, cand.Package, cand.Version)
@@ -282,7 +312,7 @@ func (r *Runner) handleCandidate(ctx context.Context, cand Candidate, limitReach
 	// and before Render so no upstream calls are spent on a capped item.
 	if limitReached {
 		item.Capped = true
-		log.Info("release capped; will be posted on a later run",
+		log.Info("release skipped: per-run send budget exhausted; will be posted on a later run",
 			"source", cand.Source,
 			"package", cand.Package,
 			"version", cand.Version)
@@ -330,7 +360,7 @@ func (r *Runner) handleCandidate(ctx context.Context, cand Candidate, limitReach
 		return item, true, fmt.Errorf("marshal release payload %s %s: %w", cand.Package, cand.Version, err)
 	}
 	if _, err := r.Posts.Record(ctx, store.KindRelease, string(payload), msgID); err != nil {
-		log.Warn("record posts_log failed",
+		log.Error("record posts_log failed; release was posted and recorded but the audit row is missing",
 			"source", cand.Source,
 			"package", cand.Package,
 			"version", cand.Version,
@@ -353,6 +383,14 @@ func (r *Runner) seedIfFirstRun(ctx context.Context, seeder Seeder, sourceName s
 	if pkg == "" {
 		return false, errors.New("seed package is required")
 	}
+	for _, cand := range cands {
+		if err := validateCandidate(cand); err != nil {
+			return false, err
+		}
+		if cand.Package != pkg {
+			return false, fmt.Errorf("seed candidate %s %s: package does not match seed package %s", cand.Package, cand.Version, pkg)
+		}
+	}
 	_, err := r.Releases.GetLatestSeen(ctx, pkg)
 	if err == nil {
 		return false, nil // history already recorded: normal per-candidate flow
@@ -366,7 +404,7 @@ func (r *Runner) seedIfFirstRun(ctx context.Context, seeder Seeder, sourceName s
 		return false, fmt.Errorf("render seed notice: %w", err)
 	}
 	if ann != nil && ann.Text == "" {
-		ann = nil
+		return false, errors.New("render seed notice: empty announcement")
 	}
 
 	items := make([]ItemResult, 0, len(cands))
@@ -388,13 +426,22 @@ func (r *Runner) seedIfFirstRun(ctx context.Context, seeder Seeder, sourceName s
 		}
 	}
 
-	// One transaction: a partially recorded history would make the next run
-	// skip seeding and announce every leftover item individually.
+	// One transaction, after the notice: a partially recorded history would
+	// make the next run skip seeding and announce every leftover item
+	// individually. See Seeder for the failure semantics.
 	rows := make([]store.SeenRelease, 0, len(cands))
 	for _, cand := range cands {
 		rows = append(rows, store.SeenRelease{Package: cand.Package, Version: cand.Version, ReleaseURL: cand.URL})
 	}
 	if err := r.Releases.RecordSeenBatch(ctx, rows, msgID); err != nil {
+		if msgID != 0 {
+			log.Error("seed notice was posted but history was not recorded; the notice will be repeated on the next run",
+				"source", sourceName,
+				"package", pkg,
+				"message_id", msgID,
+				"err", err)
+			return false, fmt.Errorf("record seeded history %s (notice message_id=%d already posted): %w", pkg, msgID, err)
+		}
 		return false, fmt.Errorf("record seeded history %s: %w", pkg, err)
 	}
 	for i := range items {
@@ -413,7 +460,7 @@ func (r *Runner) seedIfFirstRun(ctx context.Context, seeder Seeder, sourceName s
 		return true, fmt.Errorf("marshal seed payload %s: %w", pkg, err)
 	}
 	if _, err := r.Posts.Record(ctx, store.KindSeed, string(payload), msgID); err != nil {
-		log.Warn("record posts_log failed",
+		log.Error("record posts_log failed; history was recorded but the seed audit row is missing",
 			"source", sourceName,
 			"package", pkg,
 			"kind", store.KindSeed,

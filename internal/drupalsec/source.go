@@ -10,9 +10,13 @@ import (
 )
 
 // Source turns drupal.org security advisories into releasewatch candidates.
-// It also implements releasewatch.Seeder: the feed always lists the 50 most
-// recent advisories, so the first run records them as history and posts a
-// single notice instead of 50 announcements.
+// It also implements releasewatch.Seeder: the feed lists a window of recent
+// advisories (50 at the time of writing), so the first run records them as
+// history and posts a single notice instead of one announcement each.
+//
+// Source is not safe for concurrent use: Candidates fills a per-run cache
+// that SeedNotice reads, relying on releasewatch.Runner calling them in that
+// order within one Run.
 type Source struct {
 	Client *Client
 	Logger *slog.Logger
@@ -47,6 +51,17 @@ func (s *Source) Candidates(ctx context.Context) ([]releasewatch.Candidate, erro
 	for _, w := range warnings {
 		s.logger().Warn("drupal security feed item skipped", "reason", w)
 	}
+	degraded := 0
+	for i := range advisories {
+		a := &advisories[i]
+		if missing := a.MissingFields(); len(missing) > 0 {
+			degraded++
+			s.logger().Warn("drupal security advisory parsed with missing fields; drupal.org markup may have changed",
+				"version", a.Version(),
+				"link", a.Link,
+				"missing", missing)
+		}
+	}
 
 	sort.SliceStable(advisories, func(i, j int) bool {
 		if !advisories[i].Published.Equal(advisories[j].Published) {
@@ -70,7 +85,7 @@ func (s *Source) Candidates(ctx context.Context) ([]releasewatch.Candidate, erro
 			},
 		})
 	}
-	s.logger().Info("drupal security advisories", "count", len(out), "skipped", len(warnings))
+	s.logger().Info("drupal security advisories", "count", len(out), "skipped", len(warnings), "degraded", degraded)
 	return out, nil
 }
 
