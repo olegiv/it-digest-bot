@@ -7,6 +7,69 @@ and this project adheres to [Semantic Versioning 2.0.0](https://semver.org/spec/
 
 ## [Unreleased]
 
+### Added
+
+#### `digest watch`
+
+- Now also monitors drupal.org security advisories — Drupal core,
+  contributed projects and public service announcements — from the
+  combined feed `https://www.drupal.org/security/all/rss.xml`. Each
+  advisory not yet in `releases_seen` (package `drupal-security`,
+  version = advisory ID such as `SA-CONTRIB-2026-191`) is posted as
+  one MarkdownV2 message with risk level and score, vulnerability
+  type, affected versions, CVEs, a description excerpt and the
+  upgrade steps, oldest first. Deterministic: no LLM call. New
+  package `internal/drupalsec`; optional `[drupal_security] feed_url`
+  override in `config.toml` (`https`, or `http` for `localhost`
+  fixtures; credentials, query strings and fragments are rejected
+  because the value is printed by `config-check` and logged on HTTP
+  errors). Every header field of a post is capped, and an oversized
+  advisory link falls back to `drupal.org/security`, so a post can
+  never exceed Telegram's 4096-byte limit and get stuck retrying. Item
+  links must be `https` on `drupal.org` (or a subdomain) with no
+  credentials, whitespace or control characters; other items are
+  skipped with a warning. Advisory HTML is converted to text with the
+  `golang.org/x/net/html` parser, so `script`/`style` bodies are
+  dropped instead of leaking into posts. Each solution line is capped
+  so one long paragraph is shortened rather than dropping the whole
+  Solution block, a post whose description or solution had to be
+  dropped for size says so ("Shortened to fit; full details in the
+  linked advisory"), and a truncated description can no longer end in
+  a lone escape backslash (which Telegram rejects). Advisories that parse
+  with missing fields (no ID, risk, versions or solution) are still
+  posted but logged with a warning, so a drupal.org markup change is
+  visible in the journal.
+
+#### Release watcher
+
+- New optional `releasewatch.Seeder` source extension for upstreams
+  that list a window of history. When `releases_seen` has no row for
+  the source's package, the runner records every current candidate
+  as seen and posts the source's notice once (or nothing, if the
+  source returns none) instead of announcing dozens of historical
+  items on the first run. `Candidate.URL` is stored as `release_url`
+  for seeded rows; seeds are audited in `posts_log` with kind `seed`;
+  `--dry-run` prints a `SEED` block and writes nothing. The history is
+  written in one transaction (`store.Releases.RecordSeenBatch`) after
+  the notice, so a failed first run leaves no partial state that would
+  turn the next run into dozens of individual posts; seeded candidates
+  are validated like posted ones and must carry the seed package.
+- `Runner.MaxPostsPerRun` caps send attempts per run across all sources
+  (default 10, `releasewatch.DefaultMaxPostsPerRun`;
+  `releasewatch.UnlimitedPosts` disables). Unseen candidates beyond the
+  cap are left unrecorded and posted on later runs in source order, so
+  a feed that suddenly lists many new items cannot flood the channel in
+  one pass, and a Telegram outage stops after the cap instead of
+  retrying every release. Seeding is not subject to the cap.
+
+#### Telegram
+
+- `telegram.EscapeMarkdownV2Plain` escapes every MarkdownV2 special
+  character without preserving links or code spans. `internal/drupalsec`
+  uses it for all feed-derived text, so markup inside an upstream
+  advisory (a `[text](url)` link, a backtick span) renders as literal
+  text instead of live markup in the channel.
+
 ### Fixed
 
 #### Daily digest LLM JSON output

@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/olegiv/it-digest-bot/actions/workflows/ci.yml/badge.svg)](https://github.com/olegiv/it-digest-bot/actions/workflows/ci.yml) [![CodeQL](https://github.com/olegiv/it-digest-bot/actions/workflows/github-code-scanning/codeql/badge.svg)](https://github.com/olegiv/it-digest-bot/actions/workflows/github-code-scanning/codeql)
 
-Posts Claude Code and Go release announcements — plus daily AI news digests — to a Telegram channel. Single static Go binary, scheduled by **systemd timers** on plain Ubuntu. No Docker, no web server, no long-running daemon.
+Posts Claude Code and Go release announcements and new Drupal security advisories — plus daily AI news digests — to a Telegram channel. Single static Go binary, scheduled by **systemd timers** on plain Ubuntu. No Docker, no web server, no long-running daemon.
 
 ## Architecture
 
@@ -20,6 +20,10 @@ Posts Claude Code and Go release announcements — plus daily AI news digests �
  │                 │      HTTPS      ┌──────────────┐
  │                 │ ─────────────▶  │    go.dev    │   stable Go releases
  │                 │ ◀─────────────  │  dl + docs   │   + release history
+ │                 │                 └──────────────┘
+ │                 │      HTTPS      ┌──────────────┐
+ │                 │ ─────────────▶  │  drupal.org  │   security advisories
+ │                 │ ◀─────────────  │  RSS feed    │   core + contrib + PSA
  │                 │                 └──────────────┘
  │                 │      HTTPS      ┌──────────────┐
  │                 │ ─────────────▶  │   Telegram   │   sendMessage
@@ -135,7 +139,7 @@ A third systemd timer handles **daily server-side backups** automatically — no
 
 | Command                 | What it does                                                       |
 |-------------------------|--------------------------------------------------------------------|
-| `digest watch`          | Check Claude Code and stable Go releases; post new versions.        |
+| `digest watch`          | Check Claude Code and stable Go releases and new Drupal security advisories; post what is new. |
 | `digest daily`          | Build and post the daily AI news digest via Claude.                |
 | `digest post --dry-run` | Render a sample release post to stdout without sending anything.   |
 | `digest migrate`        | Apply pending SQLite schema migrations.                            |
@@ -155,6 +159,7 @@ All non-secret settings live in `config.toml`. See [`config.example.toml`](./con
 | `[database]`      | `path`         | yes      | —                        | SQLite file path |
 | `[claudecode]`    | `npm_package`  | yes      | `@anthropic-ai/claude-code` | |
 | `[claudecode]`    | `github_repo`  | yes      | `anthropics/claude-code` | |
+| `[drupal_security]` | `feed_url`   | no       | `https://www.drupal.org/security/all/rss.xml` | Override only; `https`, or `http` for `localhost`/loopback fixtures; no credentials, query string or fragment |
 | `[llm]`           | `model`        | phase 2  | `claude-sonnet-4-6`      | |
 | `[llm]`           | `max_tokens`   | phase 2  | `1024`                   | |
 | `[log]`           | `level`        | no       | `info`                   | `debug` / `info` / `warn` / `error` |
@@ -162,6 +167,8 @@ All non-secret settings live in `config.toml`. See [`config.example.toml`](./con
 | `[[feed]]`        | `name`, `url`  | phase 2  | —                        | One block per feed |
 
 Go release monitoring has no TOML settings; `digest watch` reads official stable releases from `https://go.dev/dl/?mode=json`.
+
+Drupal security monitoring is always on as well. `digest watch` reads the combined drupal.org security feed (core, contributed projects and public service announcements) and posts one message per advisory that is not yet in `releases_seen`, oldest first, with risk level, vulnerability type, affected versions, CVEs and the upgrade path. On its very first run against a database the feed's current items (50 at the time of writing) are recorded as the baseline and a single "now tracked" notice is posted instead of one announcement each.
 
 Secrets come from the environment only (never the TOML):
 
@@ -173,7 +180,7 @@ Secrets come from the environment only (never the TOML):
 
 ## Roadmap
 
-- [x] **Phase 1** — Release watchers (Claude Code via npm/GitHub, Go via go.dev → Telegram).
+- [x] **Phase 1** — Release watchers (Claude Code via npm/GitHub, Go via go.dev, Drupal security advisories via drupal.org RSS → Telegram).
 - [x] **Phase 2** — Daily AI digest (RSS aggregation → Claude summarization → Telegram).
 
 Both phases are fully implemented. The `daily` command fetches all configured feeds in parallel, dedupes against `articles_seen`, sends the 24h window to Claude via `POST /v1/messages` for ranking/summarization, renders a MarkdownV2 post grouped by source, and splits into chunks under Telegram's 4096-byte cap if needed.

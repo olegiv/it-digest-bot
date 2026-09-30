@@ -83,6 +83,26 @@ func EscapeMarkdownV2(s string) string {
 	return b.String()
 }
 
+// EscapeMarkdownV2Plain escapes every MarkdownV2 special character in `s`
+// so the whole string renders as literal text. Unlike EscapeMarkdownV2 it
+// preserves nothing: backticks, `[text](url)` links and fences all come out
+// inert. Use it for text from untrusted upstreams (RSS feeds, scraped HTML)
+// where a link or code span in the input must never become live markup in
+// the channel; keep EscapeMarkdownV2 for prose that is meant to carry those
+// constructs, such as LLM-rendered digest summaries.
+func EscapeMarkdownV2Plain(s string) string {
+	var b strings.Builder
+	b.Grow(len(s) + len(s)/8)
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		if c < 128 && mdv2Specials[c] {
+			b.WriteByte('\\')
+		}
+		b.WriteByte(c)
+	}
+	return b.String()
+}
+
 // EscapeMarkdownV2Code escapes `s` for use inside an already-opened
 // MarkdownV2 code span or fenced block. Only ` and \ need escaping there.
 func EscapeMarkdownV2Code(s string) string {

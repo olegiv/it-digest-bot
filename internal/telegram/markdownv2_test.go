@@ -107,6 +107,48 @@ func TestEscapeMarkdownV2(t *testing.T) {
 	}
 }
 
+func TestEscapeMarkdownV2Plain(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct{ name, in, want string }{
+		{name: "empty", in: "", want: ""},
+		{name: "plain ascii", in: "hello world", want: "hello world"},
+		{
+			name: "all specials get escaped",
+			in:   "_*[]()~`>#+-=|{}.!\\",
+			want: `\_\*\[\]\(\)\~\` + "`" + `\>\#\+\-\=\|\{\}\.\!\\`,
+		},
+		{
+			name: "link syntax is neutralised",
+			in:   "See [update now](https://evil.example/login)",
+			want: `See \[update now\]\(https://evil\.example/login\)`,
+		},
+		{
+			name: "inline code is neutralised",
+			in:   "run `rm -rf /` now",
+			want: "run \\`rm \\-rf /\\` now",
+		},
+		{
+			name: "fence is neutralised",
+			in:   "```go\nx```",
+			want: "\\`\\`\\`go\nx\\`\\`\\`",
+		},
+		{
+			name: "utf8 passes through",
+			in:   "Ünïcödé — ok",
+			want: "Ünïcödé — ok",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			if got := EscapeMarkdownV2Plain(tc.in); got != tc.want {
+				t.Errorf("EscapeMarkdownV2Plain(%q)\n got %q\nwant %q", tc.in, got, tc.want)
+			}
+		})
+	}
+}
+
 func TestEscapeMarkdownV2Code(t *testing.T) {
 	t.Parallel()
 	if got := EscapeMarkdownV2Code("a`b\\c"); got != `a\`+"`"+`b\\c` {

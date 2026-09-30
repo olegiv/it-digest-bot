@@ -16,6 +16,10 @@ type Kind string
 const (
 	KindRelease Kind = "release"
 	KindDigest  Kind = "digest"
+	// KindSeed records a source's first run, where existing history was
+	// marked as seen (and at most one notice posted) instead of being
+	// announced item by item.
+	KindSeed Kind = "seed"
 )
 
 // Record inserts a post-log row and returns the new row id.

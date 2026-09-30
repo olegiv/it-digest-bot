@@ -6,6 +6,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/olegiv/it-digest-bot/internal/config"
+	"github.com/olegiv/it-digest-bot/internal/drupalsec"
 )
 
 func newConfigCheckCmd(flags *rootFlags) *cobra.Command {
@@ -28,6 +29,10 @@ the first problem. Useful for vetting a config edit before systemctl start.`,
 			if adminChat == "" {
 				adminChat = "(falls back to channel)"
 			}
+			drupalFeed := cfg.DrupalSecurity.FeedURL
+			if drupalFeed == "" {
+				drupalFeed = drupalsec.DefaultFeedURL + " (default)"
+			}
 			_, _ = fmt.Fprintf(cmd.OutOrStdout(),
 				"config OK\n"+
 					"  telegram.channel     = %s\n"+
@@ -36,6 +41,7 @@ the first problem. Useful for vetting a config edit before systemctl start.`,
 					"  claudecode.npm       = %s\n"+
 					"  claudecode.repo      = %s\n"+
 					"  claudecode.token_set = %t\n"+
+					"  drupal_security.feed = %s\n"+
 					"  llm.model            = %s\n"+
 					"  llm.max_tokens       = %d\n"+
 					"  digest.lookback_h    = %d\n"+
@@ -46,6 +52,7 @@ the first problem. Useful for vetting a config edit before systemctl start.`,
 				cfg.ClaudeCode.NPMPackage,
 				cfg.ClaudeCode.GitHubRepo,
 				cfg.ClaudeCode.GitHubToken != "",
+				drupalFeed,
 				cfg.LLM.Model,
 				cfg.LLM.MaxTokens,
 				cfg.Digest.LookbackHours,

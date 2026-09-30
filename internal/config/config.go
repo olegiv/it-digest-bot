@@ -5,6 +5,8 @@ package config
 import (
 	"errors"
 	"fmt"
+	"net"
+	"net/url"
 	"os"
 	"strings"
 
@@ -19,13 +21,14 @@ const (
 
 // Config is the full parsed configuration.
 type Config struct {
-	Telegram   TelegramConfig   `toml:"telegram"`
-	Database   DatabaseConfig   `toml:"database"`
-	ClaudeCode ClaudeCodeConfig `toml:"claudecode"`
-	LLM        LLMConfig        `toml:"llm"`
-	Log        LogConfig        `toml:"log"`
-	Digest     DigestConfig     `toml:"digest"`
-	Feeds      []FeedConfig     `toml:"feed"`
+	Telegram       TelegramConfig       `toml:"telegram"`
+	Database       DatabaseConfig       `toml:"database"`
+	ClaudeCode     ClaudeCodeConfig     `toml:"claudecode"`
+	DrupalSecurity DrupalSecurityConfig `toml:"drupal_security"`
+	LLM            LLMConfig            `toml:"llm"`
+	Log            LogConfig            `toml:"log"`
+	Digest         DigestConfig         `toml:"digest"`
+	Feeds          []FeedConfig         `toml:"feed"`
 }
 
 type TelegramConfig struct {
@@ -42,6 +45,16 @@ type ClaudeCodeConfig struct {
 	NPMPackage  string `toml:"npm_package"`
 	GitHubRepo  string `toml:"github_repo"`
 	GitHubToken string `toml:"-"` // optional, from GITHUB_TOKEN env
+}
+
+// DrupalSecurityConfig tunes the drupal.org security advisory source of
+// `digest watch`. The source is always on; the only setting overrides the
+// feed URL (empty = the combined core+contrib+PSA feed built into the
+// source). Plain http is accepted only for localhost or a loopback address,
+// so a fixture can be served locally for testing; credentials, query strings
+// and fragments are rejected (see validateFeedURL).
+type DrupalSecurityConfig struct {
+	FeedURL string `toml:"feed_url"`
 }
 
 type LLMConfig struct {
@@ -96,6 +109,9 @@ func Load(path string) (*Config, error) {
 	cfg.Telegram.BotToken = os.Getenv(EnvTelegramBotToken)
 	cfg.LLM.APIKey = os.Getenv(EnvAnthropicAPIKey)
 	cfg.ClaudeCode.GitHubToken = os.Getenv(EnvGitHubToken)
+	// Normalise once so validation, config-check and the client all see the
+	// same value; a padded URL would otherwise fail url.Parse confusingly.
+	cfg.DrupalSecurity.FeedURL = strings.TrimSpace(cfg.DrupalSecurity.FeedURL)
 
 	if cfg.Digest.MaxPerSource == 0 {
 		cfg.Digest.MaxPerSource = DefaultMaxPerSource
@@ -140,10 +156,47 @@ func (c *Config) Validate() error {
 	if c.Digest.LookbackHours < 0 {
 		errs = append(errs, "digest.lookback_hours must be >= 0")
 	}
+	if err := validateFeedURL("drupal_security.feed_url", c.DrupalSecurity.FeedURL); err != nil {
+		errs = append(errs, err.Error())
+	}
 	if len(errs) > 0 {
 		return errors.New("invalid config: " + strings.Join(errs, "; "))
 	}
 	return nil
+}
+
+// validateFeedURL accepts an empty value (use the built-in default), an https
+// URL with a host, or plain http to localhost / a loopback address. Userinfo,
+// query strings and fragments are rejected: the value is printed by
+// config-check and appears in HTTP error logs, and secrets never live in TOML.
+func validateFeedURL(key, raw string) error {
+	if strings.TrimSpace(raw) == "" {
+		return nil
+	}
+	u, err := url.Parse(raw)
+	if err != nil {
+		return fmt.Errorf("%s is not a valid URL: %w", key, err)
+	}
+	if u.Scheme != "https" && u.Scheme != "http" {
+		return fmt.Errorf("%s must use https, or http for localhost (got scheme %q)", key, u.Scheme)
+	}
+	host := u.Hostname()
+	if host == "" {
+		return fmt.Errorf("%s must include a host", key)
+	}
+	if u.User != nil {
+		return fmt.Errorf("%s must not contain credentials", key)
+	}
+	if u.RawQuery != "" || u.ForceQuery || u.Fragment != "" {
+		return fmt.Errorf("%s must not contain a query string or fragment", key)
+	}
+	if u.Scheme == "https" || strings.EqualFold(host, "localhost") {
+		return nil
+	}
+	if ip := net.ParseIP(host); ip != nil && ip.IsLoopback() {
+		return nil
+	}
+	return fmt.Errorf("%s must use https (plain http is only allowed for localhost)", key)
 }
 
 // ValidateForDaily adds phase-2-specific checks on top of Validate.

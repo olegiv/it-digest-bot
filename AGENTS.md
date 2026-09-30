@@ -44,7 +44,7 @@ CI (`.github/workflows`) runs build + vet + race + lint on push/PR to `main`.
 
 Two flows, each driven by its own systemd unit pair under `deploy/systemd/`:
 
-1. **`digest watch`** (hourly) — `internal/releasewatch.Runner` executes release sources and handles the shared seen-check, dry-run, Telegram send, and audit-log flow. `internal/claudecode.Source` queries npm `dist-tags.latest` for `@anthropic-ai/claude-code`, skips already-posted `(package, version)` rows, then requires GitHub `/releases/latest` to name the same version before posting. `internal/gorelease.Source` queries `https://go.dev/dl/?mode=json` and announces every unseen stable Go version returned there. Re-running is safe; already-seen and deferred candidates do no Telegram or DB writes.
+1. **`digest watch`** (hourly) — `internal/releasewatch.Runner` executes release sources and handles the shared seen-check, dry-run, Telegram send, and audit-log flow. `internal/claudecode.Source` queries npm `dist-tags.latest` for `@anthropic-ai/claude-code`, skips already-posted `(package, version)` rows, then requires GitHub `/releases/latest` to name the same version before posting. `internal/gorelease.Source` queries `https://go.dev/dl/?mode=json` and announces every unseen stable Go version returned there. `internal/drupalsec.Source` fetches the combined drupal.org security RSS feed (core + contrib + PSA), parses each advisory (ID, project, risk, affected versions, CVEs, solution) and posts every unseen one oldest-first under package `drupal-security`; it implements the optional `releasewatch.Seeder` hook, so on the very first run (no `releases_seen` row for its package) the runner records the feed's current items (50 at the time of writing) as seen and posts one notice instead of one announcement each. Re-running is safe; already-seen and deferred candidates do no Telegram or DB writes. `Runner.MaxPostsPerRun` (default 10) caps send attempts per run across all sources (seeding excluded); capped candidates stay unrecorded and are posted on later runs.
 
 2. **`digest daily`** (08:00 Europe/Zurich) — `internal/digest/Builder`: `errgroup` parallel-fetch of all `[[feed]]` entries → dedupe via `articles_seen.url_hash` (SHA-256 of canonicalized URL) → send the 24h window to Anthropic `/v1/messages` for ranking + summarization → render MarkdownV2 grouped by source → split into chunks under `telegram.MaxMessageBytes` (4096) → post each chunk → record per chunk.
 
@@ -55,6 +55,7 @@ Both flows share `internal/store` (SQLite via `modernc.org/sqlite`, no CGO), `in
 - `internal/releasewatch` — shared release watcher runner: source candidates, seen checks, dry-run output, Telegram send, and post logging.
 - `internal/claudecode` — Claude Code release source/client: `npm.go`, `github.go`, `changelog.go`, `format.go`, `source.go`, `watcher.go`.
 - `internal/gorelease` — official Go stable release source/client from go.dev downloads + release history.
+- `internal/drupalsec` — drupal.org security advisory source: feed client (`gofeed`), HTML field parser (`client.go`), MarkdownV2 formatter (`format.go`), `Source` + `Seeder` (`source.go`). No LLM.
 - `internal/digest` — phase 2 orchestrator + `render.go` (MarkdownV2 layout + chunk splitter).
 - `internal/news` — feed fetch (`gofeed`) + canonical URL hashing.
 - `internal/llm` — `Summarizer` interface (`anthropic.go` is the prod impl, mockable in tests).
@@ -64,7 +65,7 @@ Both flows share `internal/store` (SQLite via `modernc.org/sqlite`, no CGO), `in
 
 ### Dry-run pattern
 
-`releasewatch.Runner`, `claudecode.Watcher`, and `digest.Builder` expose `DryRun bool` + `DryOut io.Writer` fields. When `DryRun=true` they print rendered output to `DryOut` (defaults to `os.Stdout`) and skip **both** the Telegram send **and** all DB writes — making the same run repeatable. Preserve this contract when modifying them.
+`releasewatch.Runner`, `claudecode.Watcher`, and `digest.Builder` expose `DryRun bool` + `DryOut io.Writer` fields. When `DryRun=true` they print rendered output to `DryOut` (defaults to `os.Stdout`) and skip **both** the Telegram send **and** all DB writes — making the same run repeatable. A first-run seed (see `releasewatch.Seeder`) prints a `SEED <source>` block listing what would be recorded plus the notice text, and likewise writes nothing. Preserve this contract when modifying them.
 
 ### URL-sanitizer contract
 
