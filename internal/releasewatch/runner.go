@@ -9,11 +9,19 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"math"
 	"os"
 
 	"github.com/olegiv/it-digest-bot/internal/store"
 	"github.com/olegiv/it-digest-bot/internal/telegram"
 )
+
+// DefaultMaxPostsPerRun bounds how many announcements one Run may send when
+// Runner.MaxPostsPerRun is zero. A source that suddenly lists many unseen
+// items (a feed that was truncated on the previous run, a history that was
+// never recorded) is throttled to this many posts; the rest stay unseen and
+// are posted on later runs in the order the source returned them.
+const DefaultMaxPostsPerRun = 10
 
 // ErrDeferred marks a candidate that should not be posted yet, without
 // failing the whole watcher run.
@@ -97,6 +105,11 @@ type Runner struct {
 
 	DryRun bool
 	DryOut io.Writer
+
+	// MaxPostsPerRun caps the announcements (or dry-run renders) per Run
+	// across all sources. Zero means DefaultMaxPostsPerRun; a negative value
+	// disables the cap.
+	MaxPostsPerRun int
 }
 
 // Result summarizes one Runner pass.
@@ -113,7 +126,35 @@ type ItemResult struct {
 	Seen      bool
 	Deferred  bool
 	Seeded    bool // recorded as history on a source's first run, not posted
+	Capped    bool // unseen, but left for a later run because MaxPostsPerRun was reached
 	MessageID int64
+}
+
+// CappedCount returns the number of unseen candidates left for a later run
+// because the per-run post limit was reached.
+func (r *Result) CappedCount() int {
+	if r == nil {
+		return 0
+	}
+	n := 0
+	for _, item := range r.Items {
+		if item.Capped {
+			n++
+		}
+	}
+	return n
+}
+
+// postLimit resolves MaxPostsPerRun to an effective limit.
+func (r *Runner) postLimit() int {
+	switch {
+	case r.MaxPostsPerRun < 0:
+		return math.MaxInt
+	case r.MaxPostsPerRun == 0:
+		return DefaultMaxPostsPerRun
+	default:
+		return r.MaxPostsPerRun
+	}
 }
 
 // PostedCount returns the number of candidates posted in this run.
@@ -150,6 +191,8 @@ func (r *Runner) Run(ctx context.Context) (*Result, error) {
 	log := r.logger()
 	res := &Result{}
 	var errs []error
+	limit := r.postLimit()
+	posts := 0
 
 	for _, source := range r.Sources {
 		if source == nil {
@@ -183,37 +226,48 @@ func (r *Runner) Run(ctx context.Context) (*Result, error) {
 		}
 
 		for _, cand := range candidates {
-			item, err := r.handleCandidate(ctx, cand, log)
+			item, sent, err := r.handleCandidate(ctx, cand, posts >= limit, log)
 			res.Items = append(res.Items, item)
+			if sent {
+				posts++
+			}
 			if err != nil {
 				errs = append(errs, err)
 				continue
 			}
 		}
 	}
+	if n := res.CappedCount(); n > 0 {
+		log.Warn("per-run post limit reached; remaining releases wait for the next run",
+			"limit", limit,
+			"posted", posts,
+			"capped", n)
+	}
 
 	return res, errors.Join(errs...)
 }
 
-func (r *Runner) handleCandidate(ctx context.Context, cand Candidate, log *slog.Logger) (ItemResult, error) {
-	item := ItemResult{
+// handleCandidate processes one candidate. sent reports whether a message
+// was sent, or would have been in dry-run, so Run can enforce MaxPostsPerRun.
+func (r *Runner) handleCandidate(ctx context.Context, cand Candidate, limitReached bool, log *slog.Logger) (item ItemResult, sent bool, err error) {
+	item = ItemResult{
 		Source:  cand.Source,
 		Package: cand.Package,
 		Version: cand.Version,
 	}
 	if cand.Package == "" {
-		return item, errors.New("release candidate package is required")
+		return item, false, errors.New("release candidate package is required")
 	}
 	if cand.Version == "" {
-		return item, fmt.Errorf("release candidate %s: version is required", cand.Package)
+		return item, false, fmt.Errorf("release candidate %s: version is required", cand.Package)
 	}
 	if cand.Render == nil {
-		return item, fmt.Errorf("release candidate %s %s: render func is required", cand.Package, cand.Version)
+		return item, false, fmt.Errorf("release candidate %s %s: render func is required", cand.Package, cand.Version)
 	}
 
 	seen, err := r.Releases.HasSeen(ctx, cand.Package, cand.Version)
 	if err != nil {
-		return item, fmt.Errorf("store lookup %s %s: %w", cand.Package, cand.Version, err)
+		return item, false, fmt.Errorf("store lookup %s %s: %w", cand.Package, cand.Version, err)
 	}
 	if seen {
 		item.Seen = true
@@ -221,7 +275,18 @@ func (r *Runner) handleCandidate(ctx context.Context, cand Candidate, log *slog.
 			"source", cand.Source,
 			"package", cand.Package,
 			"version", cand.Version)
-		return item, nil
+		return item, false, nil
+	}
+
+	// Checked after the seen lookup so only genuinely new releases count,
+	// and before Render so no upstream calls are spent on a capped item.
+	if limitReached {
+		item.Capped = true
+		log.Info("release capped; will be posted on a later run",
+			"source", cand.Source,
+			"package", cand.Package,
+			"version", cand.Version)
+		return item, false, nil
 	}
 
 	ann, err := cand.Render(ctx)
@@ -233,36 +298,36 @@ func (r *Runner) handleCandidate(ctx context.Context, cand Candidate, log *slog.
 				"package", cand.Package,
 				"version", cand.Version,
 				"reason", err.Error())
-			return item, nil
+			return item, false, nil
 		}
-		return item, fmt.Errorf("render release %s %s: %w", cand.Package, cand.Version, err)
+		return item, false, fmt.Errorf("render release %s %s: %w", cand.Package, cand.Version, err)
 	}
 	if ann == nil {
-		return item, fmt.Errorf("render release %s %s: nil announcement", cand.Package, cand.Version)
+		return item, false, fmt.Errorf("render release %s %s: nil announcement", cand.Package, cand.Version)
 	}
 	if ann.Text == "" {
-		return item, fmt.Errorf("render release %s %s: empty announcement", cand.Package, cand.Version)
+		return item, false, fmt.Errorf("render release %s %s: empty announcement", cand.Package, cand.Version)
 	}
 
 	if r.DryRun {
 		r.printDryRun(cand, ann, log)
-		return item, nil
+		return item, true, nil
 	}
 
 	msgID, err := r.Bot.SendMessage(ctx, r.Channel, ann.Text, telegram.ParseModeMarkdownV2)
 	if err != nil {
-		return item, fmt.Errorf("telegram send %s %s: %w", cand.Package, cand.Version, err)
+		return item, true, fmt.Errorf("telegram send %s %s: %w", cand.Package, cand.Version, err)
 	}
 	item.Posted = true
 	item.MessageID = msgID
 
 	if err := r.Releases.RecordSeen(ctx, cand.Package, cand.Version, msgID, ann.ReleaseURL); err != nil {
-		return item, fmt.Errorf("record release %s %s: %w", cand.Package, cand.Version, err)
+		return item, true, fmt.Errorf("record release %s %s: %w", cand.Package, cand.Version, err)
 	}
 
 	payload, err := json.Marshal(r.payload(cand, ann))
 	if err != nil {
-		return item, fmt.Errorf("marshal release payload %s %s: %w", cand.Package, cand.Version, err)
+		return item, true, fmt.Errorf("marshal release payload %s %s: %w", cand.Package, cand.Version, err)
 	}
 	if _, err := r.Posts.Record(ctx, store.KindRelease, string(payload), msgID); err != nil {
 		log.Warn("record posts_log failed",
@@ -277,7 +342,7 @@ func (r *Runner) handleCandidate(ctx context.Context, cand Candidate, log *slog.
 		"package", cand.Package,
 		"version", cand.Version,
 		"message_id", msgID)
-	return item, nil
+	return item, true, nil
 }
 
 // seedIfFirstRun applies the Seeder contract. It returns true when the

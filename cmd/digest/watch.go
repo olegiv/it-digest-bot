@@ -72,6 +72,7 @@ func newWatchCmd(flags *rootFlags) *cobra.Command {
 				"candidates", len(res.Items),
 				"posted", res.PostedCount(),
 				"seeded", res.SeededCount(),
+				"capped", res.CappedCount(),
 				"dry_run", dryRun)
 			return nil
 		},

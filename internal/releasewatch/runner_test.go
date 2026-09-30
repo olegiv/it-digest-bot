@@ -627,6 +627,103 @@ func TestRunnerSeederWithEmptyPackageIsAnError(t *testing.T) {
 	}
 }
 
+func TestRunnerCapsPostsPerRun(t *testing.T) {
+	t.Parallel()
+
+	// Two plain sources with 7 unseen candidates each: the default cap of 10
+	// applies across sources, the remaining 4 are left unseen (not recorded)
+	// and posted on the next run.
+	st := openStore(t)
+	bot := &fakeSender{}
+	r := &Runner{
+		Sources: []Source{
+			fakeSource{name: "a", candidates: seedCandidates("a", "pkg-a", "1", "2", "3", "4", "5", "6", "7")},
+			fakeSource{name: "b", candidates: seedCandidates("b", "pkg-b", "1", "2", "3", "4", "5", "6", "7")},
+		},
+		Channel: "@ch", Bot: bot, Releases: st.Releases, Posts: st.Posts,
+	}
+
+	res, err := r.Run(context.Background())
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if res.PostedCount() != DefaultMaxPostsPerRun || res.CappedCount() != 4 || bot.calls != DefaultMaxPostsPerRun {
+		t.Fatalf("posted %d capped %d calls %d, want 10/4/10", res.PostedCount(), res.CappedCount(), bot.calls)
+	}
+	// Source order is preserved: all of a, then the first three of b.
+	for _, v := range []string{"5", "6", "7"} {
+		if seen, _ := st.Releases.HasSeen(context.Background(), "pkg-b", v); seen {
+			t.Errorf("capped pkg-b %s must not be recorded", v)
+		}
+	}
+	if seen, _ := st.Releases.HasSeen(context.Background(), "pkg-b", "3"); !seen {
+		t.Error("pkg-b 3 should have been posted within the cap")
+	}
+
+	res, err = r.Run(context.Background())
+	if err != nil {
+		t.Fatalf("second Run: %v", err)
+	}
+	if res.PostedCount() != 4 || res.CappedCount() != 0 || bot.calls != 14 {
+		t.Errorf("second run posted %d capped %d calls %d, want 4/0/14", res.PostedCount(), res.CappedCount(), bot.calls)
+	}
+}
+
+func TestRunnerPostCapOverrides(t *testing.T) {
+	t.Parallel()
+
+	cands := seedCandidates("a", "pkg", "1", "2", "3")
+
+	t.Run("explicit limit", func(t *testing.T) {
+		t.Parallel()
+		st := openStore(t)
+		bot := &fakeSender{}
+		r := &Runner{Sources: []Source{fakeSource{name: "a", candidates: cands}}, Channel: "@ch", Bot: bot, Releases: st.Releases, Posts: st.Posts, MaxPostsPerRun: 2}
+		res, err := r.Run(context.Background())
+		if err != nil {
+			t.Fatalf("Run: %v", err)
+		}
+		if res.PostedCount() != 2 || res.CappedCount() != 1 {
+			t.Errorf("posted %d capped %d, want 2/1", res.PostedCount(), res.CappedCount())
+		}
+	})
+
+	t.Run("negative disables", func(t *testing.T) {
+		t.Parallel()
+		st := openStore(t)
+		bot := &fakeSender{}
+		r := &Runner{Sources: []Source{fakeSource{name: "a", candidates: cands}}, Channel: "@ch", Bot: bot, Releases: st.Releases, Posts: st.Posts, MaxPostsPerRun: -1}
+		res, err := r.Run(context.Background())
+		if err != nil {
+			t.Fatalf("Run: %v", err)
+		}
+		if res.PostedCount() != 3 || res.CappedCount() != 0 {
+			t.Errorf("posted %d capped %d, want 3/0", res.PostedCount(), res.CappedCount())
+		}
+	})
+
+	t.Run("dry run counts renders", func(t *testing.T) {
+		t.Parallel()
+		st := openStore(t)
+		bot := &fakeSender{}
+		var out bytes.Buffer
+		r := &Runner{
+			Sources: []Source{fakeSource{name: "a", candidates: cands}}, Channel: "@ch", Bot: bot, Releases: st.Releases, Posts: st.Posts,
+			MaxPostsPerRun: 2, DryRun: true, DryOut: &out,
+		}
+		res, err := r.Run(context.Background())
+		if err != nil {
+			t.Fatalf("Run: %v", err)
+		}
+		if bot.calls != 0 || res.CappedCount() != 1 {
+			t.Errorf("dry run calls %d capped %d, want 0/1", bot.calls, res.CappedCount())
+		}
+		if got := strings.Count(out.String(), "END DRY-RUN"); got != 2 {
+			t.Errorf("dry-run rendered %d announcements, want 2:\n%s", got, out.String())
+		}
+	})
+}
+
 func TestRunnerNonSeederSourcePostsHistory(t *testing.T) {
 	t.Parallel()
 

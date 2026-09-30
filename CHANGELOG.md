@@ -25,7 +25,12 @@ and this project adheres to [Semantic Versioning 2.0.0](https://semver.org/spec/
   because the value is printed by `config-check` and logged on HTTP
   errors). Every header field of a post is capped, and an oversized
   advisory link falls back to `drupal.org/security`, so a post can
-  never exceed Telegram's 4096-byte limit and get stuck retrying.
+  never exceed Telegram's 4096-byte limit and get stuck retrying. Item
+  links must be `https` on `drupal.org` (or a subdomain) with no
+  credentials, whitespace or control characters; other items are
+  skipped with a warning. Advisory HTML is converted to text with the
+  `golang.org/x/net/html` parser, so `script`/`style` bodies are
+  dropped instead of leaking into posts.
 
 #### Release watcher
 
@@ -36,7 +41,12 @@ and this project adheres to [Semantic Versioning 2.0.0](https://semver.org/spec/
   source returns none) instead of announcing dozens of historical
   items on the first run. `Candidate.URL` is stored as `release_url`
   for seeded rows; seeds are audited in `posts_log` with kind `seed`;
-  `--dry-run` prints a `SEED` block and writes nothing. The history is
+  `--dry-run` prints a `SEED` block and writes nothing.
+- `Runner.MaxPostsPerRun` caps announcements per run across all sources
+  (default 10, `releasewatch.DefaultMaxPostsPerRun`; negative disables).
+  Unseen candidates beyond the cap are left unrecorded and posted on
+  later runs in source order, so a feed that suddenly lists many new
+  items cannot flood the channel in one pass. The history is
   written in one transaction (`store.Releases.RecordSeenBatch`), so a
   failed first run leaves no partial state that would turn the next
   run into dozens of individual posts.

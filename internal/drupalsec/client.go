@@ -8,7 +8,6 @@ import (
 	"bytes"
 	"context"
 	"fmt"
-	"html"
 	"io"
 	"net/http"
 	"net/url"
@@ -16,8 +15,11 @@ import (
 	"regexp"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/mmcdole/gofeed"
+	"golang.org/x/net/html"
+	"golang.org/x/net/html/atom"
 
 	"github.com/olegiv/it-digest-bot/internal/httpx"
 )
@@ -31,6 +33,11 @@ const (
 	DefaultFeedURL = "https://www.drupal.org/security/all/rss.xml"
 	// SecurityPageURL is the human landing page for the advisories.
 	SecurityPageURL = "https://www.drupal.org/security"
+
+	// advisoryHost is the only host an item link may point to. The link is
+	// rendered as a live Telegram link, so a feed-controlled value must not
+	// be able to send readers anywhere else.
+	advisoryHost = "drupal.org"
 
 	maxFeedBody = 5 << 20
 )
@@ -158,6 +165,9 @@ func ParseFeed(data []byte) ([]Advisory, []string, error) {
 		case link == "":
 			warnings = append(warnings, fmt.Sprintf("item %d (%q) skipped: missing link", i, title))
 			continue
+		case !validAdvisoryLink(link):
+			warnings = append(warnings, fmt.Sprintf("item %d (%q) skipped: link %q is not an https %s URL", i, title, link, advisoryHost))
+			continue
 		case title == "":
 			warnings = append(warnings, fmt.Sprintf("item %d (%s) skipped: missing title", i, guid))
 			continue
@@ -165,6 +175,21 @@ func ParseFeed(data []byte) ([]Advisory, []string, error) {
 		advisories = append(advisories, parseItem(item, guid, link, title))
 	}
 	return advisories, warnings, nil
+}
+
+// validAdvisoryLink reports whether link is safe to render as the advisory
+// link: https, on drupal.org or a subdomain, without credentials, whitespace
+// or control characters.
+func validAdvisoryLink(link string) bool {
+	if strings.ContainsFunc(link, func(r rune) bool { return unicode.IsControl(r) || unicode.IsSpace(r) }) {
+		return false
+	}
+	u, err := url.Parse(link)
+	if err != nil || u.Scheme != "https" || u.User != nil {
+		return false
+	}
+	host := strings.ToLower(u.Hostname())
+	return host == advisoryHost || strings.HasSuffix(host, "."+advisoryHost)
 }
 
 // Description field keys as rendered by drupal.org: the token following
@@ -188,9 +213,6 @@ var (
 	riskRe       = regexp.MustCompile(`^(.+?)\s+(\d+)\s*[/∕]\s*(\d+)\s+(\S+)$`)
 	cveRe        = regexp.MustCompile(`\bCVE-\d{4}-\d{4,}\b`)
 	projectHref  = regexp.MustCompile(`href="/project/([A-Za-z0-9_\-]+)"`)
-	blockCloseRe = regexp.MustCompile(`(?i)</(p|li|div|h[1-6]|ul|ol|tr|blockquote)>|<br\s*/?>`)
-	listItemRe   = regexp.MustCompile(`(?i)<li[^>]*>`)
-	anyTagRe     = regexp.MustCompile(`(?s)<[^>]*>`)
 	// \p{Zs} covers NBSP and the THIN SPACE drupal.org puts around the
 	// risk score's division slash.
 	spaceRunRe = regexp.MustCompile(`[\p{Zs}\t\r\f\v]+`)
@@ -312,20 +334,59 @@ func parseDescription(rawHTML string) map[string]string {
 	return fields
 }
 
-// htmlToText converts an HTML fragment to plain text. Tags are removed
-// BEFORE entities are decoded so that "&lt;3.0.2" survives as "<3.0.2".
-// Block-level closers become newlines; with bullets, list items get "• ".
+// blockElements end a line of text when they close.
+var blockElements = map[atom.Atom]bool{
+	atom.P: true, atom.Li: true, atom.Div: true, atom.Ul: true, atom.Ol: true,
+	atom.Tr: true, atom.Blockquote: true,
+	atom.H1: true, atom.H2: true, atom.H3: true, atom.H4: true, atom.H5: true, atom.H6: true,
+}
+
+// htmlToText converts an HTML fragment to plain text with a real HTML5
+// parser (the same approach as internal/llm), so entities decode exactly
+// once, "&lt;3.0.2" survives as "<3.0.2", a stray "<" in prose is text, and
+// the contents of script, style and similar elements are dropped rather
+// than leaking into the post. Block elements end a line; with bullets, list
+// items get "• ".
 func htmlToText(fragment string, bullets bool) string {
-	s := fragment
-	if bullets {
-		s = listItemRe.ReplaceAllString(s, "\n• ")
+	doc, err := html.Parse(strings.NewReader(fragment))
+	if err != nil {
+		// Unreachable with a strings.Reader; degrade like internal/llm does.
+		return strings.Join(strings.Fields(fragment), " ")
 	}
-	s = blockCloseRe.ReplaceAllString(s, "\n")
-	s = anyTagRe.ReplaceAllString(s, "")
-	s = html.UnescapeString(s)
+	var sb strings.Builder
+	sb.Grow(len(fragment))
+	var walk func(*html.Node)
+	walk = func(n *html.Node) {
+		switch n.Type {
+		case html.TextNode:
+			sb.WriteString(n.Data)
+			return
+		case html.CommentNode, html.DoctypeNode:
+			return
+		case html.ElementNode:
+			switch n.DataAtom {
+			case atom.Script, atom.Style, atom.Noscript, atom.Template, atom.Iframe, atom.Svg:
+				return
+			case atom.Br:
+				sb.WriteByte('\n')
+				return
+			case atom.Li:
+				if bullets {
+					sb.WriteString("\n• ")
+				}
+			}
+		}
+		for c := n.FirstChild; c != nil; c = c.NextSibling {
+			walk(c)
+		}
+		if n.Type == html.ElementNode && blockElements[n.DataAtom] {
+			sb.WriteByte('\n')
+		}
+	}
+	walk(doc)
 
 	var out []string
-	for line := range strings.SplitSeq(s, "\n") {
+	for line := range strings.SplitSeq(sb.String(), "\n") {
 		line = strings.TrimSpace(spaceRunRe.ReplaceAllString(line, " "))
 		if line == "" || (bullets && line == "•") {
 			continue

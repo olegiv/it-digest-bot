@@ -229,6 +229,78 @@ func TestParseFeedEdgeCases(t *testing.T) {
 	assertEq(t, "RFC1123 GMT date", linkOnly.Published.Format(time.RFC3339), "2026-09-23T17:24:33Z")
 }
 
+const badLinkItems = `<item>
+<title>JS Link - Critical - XSS - SA-CONTRIB-2026-905</title>
+<link>javascript:alert(1)</link>
+<description>&lt;p&gt;a&lt;/p&gt;</description>
+<guid isPermaLink="false">8000005 at https://www.drupal.org</guid>
+</item>
+<item>
+<title>Off Host - Critical - XSS - SA-CONTRIB-2026-906</title>
+<link>https://evil.example/sa-contrib-2026-906</link>
+<description>&lt;p&gt;b&lt;/p&gt;</description>
+<guid isPermaLink="false">8000006 at https://www.drupal.org</guid>
+</item>
+<item>
+<title>Plain HTTP - Critical - XSS - SA-CONTRIB-2026-907</title>
+<link>http://www.drupal.org/sa-contrib-2026-907</link>
+<description>&lt;p&gt;c&lt;/p&gt;</description>
+<guid isPermaLink="false">8000007 at https://www.drupal.org</guid>
+</item>
+<item>
+<title>Good Link - Critical - XSS - SA-CONTRIB-2026-908</title>
+<link>https://www.drupal.org/sa-contrib-2026-908</link>
+<description>&lt;p&gt;d&lt;/p&gt;</description>
+<guid isPermaLink="false">8000008 at https://www.drupal.org</guid>
+</item>`
+
+func TestParseFeedSkipsUnsafeLinks(t *testing.T) {
+	t.Parallel()
+	advisories, warnings, err := ParseFeed(feedWith(badLinkItems))
+	if err != nil {
+		t.Fatalf("ParseFeed: %v", err)
+	}
+	if len(warnings) != 3 {
+		t.Fatalf("warnings = %v, want 3 unsafe-link skips", warnings)
+	}
+	for _, w := range warnings {
+		if !strings.Contains(w, "is not an https drupal.org URL") {
+			t.Errorf("unexpected warning %q", w)
+		}
+	}
+	if len(advisories) != 1 || advisories[0].ID != "SA-CONTRIB-2026-908" {
+		t.Fatalf("advisories = %+v, want only the drupal.org item", advisories)
+	}
+}
+
+func TestValidAdvisoryLink(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		link string
+		ok   bool
+	}{
+		{"https://www.drupal.org/sa-core-2026-013", true},
+		{"https://drupal.org/psa-2026-09-21", true},
+		{"https://WWW.Drupal.ORG/sa-contrib-2026-1", true},
+		{"http://www.drupal.org/sa-core-2026-013", false},
+		{"https://evil.example/sa-core-2026-013", false},
+		{"https://drupal.org.evil.example/x", false},
+		{"https://notdrupal.org/x", false},
+		{"https://user:pw@www.drupal.org/x", false},
+		{"javascript:alert(1)", false},
+		{"tg://user?id=1", false},
+		{"https://www.drupal.org/sa\tcore", false},
+		{"https://www.drupal.org/sa core", false},
+		{"https://www.drupal.org/sa\ncore", false},
+		{"", false},
+	}
+	for _, tt := range tests {
+		if got := validAdvisoryLink(tt.link); got != tt.ok {
+			t.Errorf("validAdvisoryLink(%q) = %v, want %v", tt.link, got, tt.ok)
+		}
+	}
+}
+
 func TestParseFeedRejectsBrokenXML(t *testing.T) {
 	t.Parallel()
 	if _, _, err := ParseFeed([]byte("<rss><channel><item><title>broken")); err == nil {
@@ -285,6 +357,10 @@ func TestHTMLToText(t *testing.T) {
 		want    string
 	}{
 		{"strip then unescape", `<div>&lt;3.0.2 &amp;&amp; &gt;=1.0</div>`, false, "<3.0.2 && >=1.0"},
+		{"raw less-than in prose is text", `<p>Versions <3.0.2 are affected</p>`, false, "Versions <3.0.2 are affected"},
+		{"script and style bodies dropped", `<p>Safe</p><script>alert(1)</script><style>p{}</style><noscript>x</noscript><p>Also safe</p>`, false, "Safe\nAlso safe"},
+		{"unbalanced closers tolerated", `</div></div><p>Text</p></div>`, false, "Text"},
+		{"br breaks line", `line one<br>line two<br/>line three`, false, "line one\nline two\nline three"},
 		{"multi-line attribute", "<a title=\"one\ntwo\"><strong>Critical</strong> 16 ∕ 25 AC:Basic</a>", false, "Critical 16 ∕ 25 AC:Basic"},
 		{"paragraphs", "<p>One.</p>\n<p>Two &#039;q&#039;.</p><!--break--><p>Three.</p>", false, "One.\nTwo 'q'.\nThree."},
 		{"bullets", "<p>Install:</p><ul>\n<li>Upgrade to <a href=\"/r\">X 1.2</a>.</li>\n<li>Or Y.</li>\n</ul>", true, "Install:\n• Upgrade to X 1.2.\n• Or Y."},
