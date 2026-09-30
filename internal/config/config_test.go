@@ -196,6 +196,24 @@ func TestLoadDrupalSecurityFeedURL(t *testing.T) {
 	}
 }
 
+func TestLoadTrimsDrupalFeedURL(t *testing.T) {
+	t.Setenv(EnvTelegramBotToken, "tg-stub")
+	cfg, err := Load(writeConfig(t, validTOML+"\n[drupal_security]\nfeed_url = \"  https://mirror.example.org/feed.xml \"\n"))
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.DrupalSecurity.FeedURL != "https://mirror.example.org/feed.xml" {
+		t.Errorf("feed_url = %q, want trimmed", cfg.DrupalSecurity.FeedURL)
+	}
+	cfg, err = Load(writeConfig(t, validTOML+"\n[drupal_security]\nfeed_url = \"   \"\n"))
+	if err != nil {
+		t.Fatalf("Load blank: %v", err)
+	}
+	if cfg.DrupalSecurity.FeedURL != "" {
+		t.Errorf("blank feed_url = %q, want empty (default)", cfg.DrupalSecurity.FeedURL)
+	}
+}
+
 func TestLoadRejectsUnknownDrupalSecurityKey(t *testing.T) {
 	t.Setenv(EnvTelegramBotToken, "tg-stub")
 	p := writeConfig(t, validTOML+"\n[drupal_security]\nenabled = true\n")

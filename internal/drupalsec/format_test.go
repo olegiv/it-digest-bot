@@ -174,17 +174,62 @@ func TestFormatAdvisoryTruncatesLongContent(t *testing.T) {
 func TestFormatAdvisoryNeverExceedsTelegramLimit(t *testing.T) {
 	t.Parallel()
 	a := sampleAdvisory()
-	// Long lines defeat TruncateMarkdownV2's paragraph preference and the
-	// solution cap counts lines, not bytes: the size guard must kick in.
+	// Header fields at their caps plus a full description and six capped
+	// solution lines exceed the limit even without the description, so the
+	// third stage (header and link only) must kick in.
+	big := strings.Repeat("h", 300)
+	a.ID = "SA-CONTRIB-2026-" + strings.Repeat("9", 300)
+	a.Title, a.ProjectName, a.ProjectMachineName, a.Vulnerability, a.AffectedVersions, a.RiskLabel, a.RiskScore = big, big, big, big, big, big, big
+	a.CVEs = make([]string, 60)
+	for i := range a.CVEs {
+		a.CVEs[i] = "CVE-2026-100000"
+	}
 	a.Description = strings.Repeat("x", 3000)
 	a.Solution = strings.Repeat("• "+strings.Repeat("y", 900)+"\n", 6)
 	msg := FormatAdvisory(a)
 	if len(msg) > telegram.MaxMessageBytes {
 		t.Fatalf("message too long: %d bytes", len(msg))
 	}
-	if !strings.Contains(msg, "🔗 [Advisory](") || !strings.Contains(msg, "SA\\-CONTRIB\\-2026\\-184") {
+	if !strings.Contains(msg, "🔗 [Advisory](") || !strings.Contains(msg, "SA\\-CONTRIB\\-2026\\-9999") {
 		t.Errorf("header and link must survive the size guard:\n%s", msg)
 	}
+	if !strings.Contains(msg, droppedNotice) || strings.Contains(msg, "🛠 *Solution*") {
+		t.Errorf("third stage must drop the solution and say so:\n%s", msg)
+	}
+}
+
+// TestFormatAdvisoryMiddleStageKeepsSolution covers the fallback stage that
+// drops only the description: the Solution block stays and the reader is
+// told content was shortened. A normal post carries no such notice.
+func TestFormatAdvisoryMiddleStageKeepsSolution(t *testing.T) {
+	t.Parallel()
+	if msg := FormatAdvisory(sampleAdvisory()); strings.Contains(msg, droppedNotice) {
+		t.Errorf("normal post must not carry the dropped notice:\n%s", msg)
+	}
+
+	a := sampleAdvisory()
+	// Sized so the post overflows only while the description is present:
+	// ~1.3 KiB of header fields plus five near-cap solution lines fit, and
+	// the 690-byte description tips it over.
+	a.Title = strings.Repeat("t", 250)
+	a.ProjectName = strings.Repeat("p", 250)
+	a.Vulnerability = strings.Repeat("v", 250)
+	a.AffectedVersions = strings.Repeat("a", 250)
+	a.RiskLabel = strings.Repeat("r", 200)
+	a.RiskScore = strings.Repeat("q", 200)
+	a.Description = strings.Repeat("d", 690)
+	a.Solution = strings.Repeat("• "+strings.Repeat("s", 398)+"\n", 5)
+	msg := FormatAdvisory(a)
+	if len(msg) > telegram.MaxMessageBytes {
+		t.Fatalf("message too long: %d bytes", len(msg))
+	}
+	if !strings.Contains(msg, "🛠 *Solution*") || strings.Contains(msg, strings.Repeat("d", 100)) {
+		t.Fatalf("middle stage should drop the description and keep the solution:\n%.400s", msg)
+	}
+	if !strings.Contains(msg, droppedNotice) {
+		t.Errorf("dropped description must be announced:\n%.400s", msg)
+	}
+	assertEscaped(t, msg)
 }
 
 // TestFormatAdvisoryNeutralisesMarkupInFeedText guards against feed-controlled
@@ -338,6 +383,7 @@ func TestCapField(t *testing.T) {
 		{name: "no dangling backslash", in: `abc\.def`, max: 7, want: "abc…"},
 		{name: "escaped backslash pair kept", in: `ab\\cdef`, max: 7, want: `ab\\…`},
 		{name: "rune boundary", in: "ééééé", max: 6, want: "é…"},
+		{name: "tiny limit yields nothing", in: "abcdef", max: 2, want: ""},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

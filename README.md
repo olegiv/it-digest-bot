@@ -168,7 +168,7 @@ All non-secret settings live in `config.toml`. See [`config.example.toml`](./con
 
 Go release monitoring has no TOML settings; `digest watch` reads official stable releases from `https://go.dev/dl/?mode=json`.
 
-Drupal security monitoring is always on as well. `digest watch` reads the combined drupal.org security feed (core, contributed projects and public service announcements) and posts one message per advisory that is not yet in `releases_seen`, oldest first, with risk level, vulnerability type, affected versions, CVEs and the upgrade path. On its very first run against a database the feed's current 50 items are recorded as the baseline and a single "now tracked" notice is posted instead of 50 announcements.
+Drupal security monitoring is always on as well. `digest watch` reads the combined drupal.org security feed (core, contributed projects and public service announcements) and posts one message per advisory that is not yet in `releases_seen`, oldest first, with risk level, vulnerability type, affected versions, CVEs and the upgrade path. On its very first run against a database the feed's current items (50 at the time of writing) are recorded as the baseline and a single "now tracked" notice is posted instead of one announcement each.
 
 Secrets come from the environment only (never the TOML):
 

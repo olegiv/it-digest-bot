@@ -35,6 +35,10 @@ const (
 
 	hashtags = "\\#Drupal \\#Security"
 	ellipsis = "…"
+	// droppedNotice tells the reader that the size fallback removed the
+	// description or solution, so a missing Solution block is not mistaken
+	// for an advisory without a fix.
+	droppedNotice = "Shortened to fit; full details in the linked advisory\\."
 )
 
 // FormatAdvisory renders one advisory as a MarkdownV2 post. Dynamic values
@@ -94,16 +98,26 @@ func render(a *Advisory, withDescription, withSolution bool) string {
 		fmt.Fprintf(&sb, "Published: %s\n", esc(a.Published.UTC().Format("2006-01-02 15:04 UTC")))
 	}
 
-	if withDescription && a.Description != "" {
-		fmt.Fprintf(&sb, "\n%s\n", truncateEscaped(esc(a.Description), MaxDescriptionBytes))
+	dropped := false
+	if a.Description != "" {
+		if withDescription {
+			fmt.Fprintf(&sb, "\n%s\n", truncateEscaped(esc(a.Description), MaxDescriptionBytes))
+		} else {
+			dropped = true
+		}
 	}
-	if withSolution {
-		if lines := solutionLines(a.Solution, MaxSolutionLines); len(lines) > 0 {
+	if lines := solutionLines(a.Solution, MaxSolutionLines); len(lines) > 0 {
+		if withSolution {
 			sb.WriteString("\n🛠 *Solution*\n")
 			for _, line := range lines {
 				fmt.Fprintf(&sb, "%s\n", capField(esc(line), MaxSolutionLineBytes))
 			}
+		} else {
+			dropped = true
 		}
+	}
+	if dropped {
+		fmt.Fprintf(&sb, "\n%s\n", droppedNotice)
 	}
 
 	fmt.Fprintf(&sb, "\n🔗 [Advisory](%s)\n\n%s", telegram.EscapeMarkdownV2URL(advisoryLink(a)), hashtags)
@@ -134,10 +148,10 @@ func capField(escaped string, limit int) string {
 	if len(escaped) <= limit {
 		return escaped
 	}
-	cut := limit - len(ellipsis)
-	if cut < 0 {
-		cut = 0
+	if limit < len(ellipsis) {
+		return "" // nothing meaningful fits; never exceed limit
 	}
+	cut := limit - len(ellipsis)
 	for cut > 0 && cut < len(escaped) && !utf8.RuneStart(escaped[cut]) {
 		cut--
 	}

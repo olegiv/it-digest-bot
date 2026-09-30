@@ -6,9 +6,8 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/olegiv/it-digest-bot/internal/config"
-
 	"github.com/olegiv/it-digest-bot/internal/claudecode"
+	"github.com/olegiv/it-digest-bot/internal/config"
 	"github.com/olegiv/it-digest-bot/internal/drupalsec"
 	"github.com/olegiv/it-digest-bot/internal/gorelease"
 	"github.com/olegiv/it-digest-bot/internal/httpx"
@@ -89,7 +88,7 @@ func newWatchCmd(flags *rootFlags) *cobra.Command {
 // optional feed URL override from config.
 func drupalSecuritySource(cfg *config.Config, h *httpx.Client, log *slog.Logger) *drupalsec.Source {
 	src := drupalsec.NewSource(h)
-	src.Client.WithFeedURL(cfg.DrupalSecurity.FeedURL)
+	src.Client.SetFeedURL(cfg.DrupalSecurity.FeedURL)
 	src.Logger = log
 	return src
 }

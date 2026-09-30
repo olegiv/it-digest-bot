@@ -32,8 +32,10 @@ and this project adheres to [Semantic Versioning 2.0.0](https://semver.org/spec/
   `golang.org/x/net/html` parser, so `script`/`style` bodies are
   dropped instead of leaking into posts. Each solution line is capped
   so one long paragraph is shortened rather than dropping the whole
-  Solution block, and a truncated description can no longer end in a
-  lone escape backslash (which Telegram rejects). Advisories that parse
+  Solution block, a post whose description or solution had to be
+  dropped for size says so ("Shortened to fit; full details in the
+  linked advisory"), and a truncated description can no longer end in
+  a lone escape backslash (which Telegram rejects). Advisories that parse
   with missing fields (no ID, risk, versions or solution) are still
   posted but logged with a warning, so a drupal.org markup change is
   visible in the journal.

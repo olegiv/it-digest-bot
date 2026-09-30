@@ -515,6 +515,21 @@ func TestRunnerSeedDryRunWritesNothing(t *testing.T) {
 	}
 }
 
+func TestRunnerSilentSeedDryRunOutput(t *testing.T) {
+	t.Parallel()
+
+	st := openStore(t)
+	var out bytes.Buffer
+	src := &fakeSeeder{fakeSource: fakeSource{name: "feed", candidates: seedCandidates("feed", "pkg-feed", "1")}, pkg: "pkg-feed"}
+	r := &Runner{Sources: []Source{src}, Channel: "@ch", Bot: &fakeSender{}, Releases: st.Releases, Posts: st.Posts, DryRun: true, DryOut: &out}
+	if _, err := r.Run(context.Background()); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if !strings.Contains(out.String(), "SEED NOTICE - none (silent seed)") {
+		t.Errorf("dry-run output for a silent seed:\n%s", out.String())
+	}
+}
+
 func TestRunnerSeedNoticeSendFailureRecordsNothing(t *testing.T) {
 	t.Parallel()
 

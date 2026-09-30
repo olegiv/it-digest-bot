@@ -99,9 +99,11 @@ func NewClient(h *httpx.Client) *Client {
 	return &Client{feedURL: DefaultFeedURL, http: h}
 }
 
-// WithFeedURL overrides the feed URL (config override or tests). An empty
-// value keeps the current URL.
-func (c *Client) WithFeedURL(u string) *Client {
+// SetFeedURL overrides the feed URL in place (config override or tests) and
+// returns the receiver for chaining. An empty value keeps the current URL.
+// Validation (https, no credentials or query) is the caller's job; config
+// does it at load time.
+func (c *Client) SetFeedURL(u string) *Client {
 	if strings.TrimSpace(u) != "" {
 		c.feedURL = u
 	}
@@ -374,12 +376,12 @@ var blockElements = map[atom.Atom]bool{
 	atom.H1: true, atom.H2: true, atom.H3: true, atom.H4: true, atom.H5: true, atom.H6: true,
 }
 
-// htmlToText converts an HTML fragment to plain text with a real HTML5
-// parser (the same approach as internal/llm), so entities decode exactly
-// once, "&lt;3.0.2" survives as "<3.0.2", a stray "<" in prose is text, and
-// the contents of script, style and similar elements are dropped rather
-// than leaking into the post. Block elements end a line; with bullets, list
-// items get "• ".
+// htmlToText converts an HTML fragment to plain text. It is built on
+// html.Parse like internal/llm's stripHTML but keeps structure: entities
+// decode exactly once, "&lt;3.0.2" survives as "<3.0.2", a stray "<" in prose
+// is text, the contents of script, style and similar elements are dropped
+// rather than leaking into the post, block elements end a line, and with
+// bullets list items get "• ".
 func htmlToText(fragment string, bullets bool) string {
 	doc, err := html.Parse(strings.NewReader(fragment))
 	if err != nil {

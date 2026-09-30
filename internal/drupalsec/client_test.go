@@ -339,6 +339,22 @@ func TestValidAdvisoryLink(t *testing.T) {
 	}
 }
 
+func TestParseFeedSkipsMissingTitle(t *testing.T) {
+	t.Parallel()
+	item := `<item>
+<link>https://www.drupal.org/sa-contrib-2026-960</link>
+<description>&lt;p&gt;x&lt;/p&gt;</description>
+<guid isPermaLink="false">8000960 at https://www.drupal.org</guid>
+</item>`
+	advisories, warnings, err := ParseFeed(feedWith(item))
+	if err != nil {
+		t.Fatalf("ParseFeed: %v", err)
+	}
+	if len(advisories) != 0 || len(warnings) != 1 || !strings.Contains(warnings[0], "missing title") {
+		t.Errorf("advisories = %d warnings = %v, want the item skipped for a missing title", len(advisories), warnings)
+	}
+}
+
 func TestParseFeedRejectsBrokenXML(t *testing.T) {
 	t.Parallel()
 	if _, _, err := ParseFeed([]byte("<rss><channel><item><title>broken")); err == nil {
@@ -437,7 +453,7 @@ func TestClientFetch(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	c := NewClient(testHTTP()).WithFeedURL(srv.URL + "/security/all/rss.xml")
+	c := NewClient(testHTTP()).SetFeedURL(srv.URL + "/security/all/rss.xml")
 	if c.FeedURL() != srv.URL+"/security/all/rss.xml" {
 		t.Errorf("FeedURL = %q", c.FeedURL())
 	}
@@ -465,7 +481,7 @@ func TestClientFetchErrors(t *testing.T) {
 			w.WriteHeader(http.StatusNotFound)
 		}))
 		defer srv.Close()
-		_, _, err := NewClient(testHTTP()).WithFeedURL(srv.URL).Fetch(context.Background())
+		_, _, err := NewClient(testHTTP()).SetFeedURL(srv.URL).Fetch(context.Background())
 		if err == nil || !strings.Contains(err.Error(), "http 404") {
 			t.Errorf("expected http 404 error, got %v", err)
 		}
@@ -477,7 +493,7 @@ func TestClientFetchErrors(t *testing.T) {
 			_, _ = w.Write(make([]byte, maxFeedBody+1))
 		}))
 		defer srv.Close()
-		_, _, err := NewClient(testHTTP()).WithFeedURL(srv.URL).Fetch(context.Background())
+		_, _, err := NewClient(testHTTP()).SetFeedURL(srv.URL).Fetch(context.Background())
 		if err == nil || !strings.Contains(err.Error(), "exceeds") {
 			t.Errorf("expected size error, got %v", err)
 		}
@@ -489,7 +505,7 @@ func TestClientFetchErrors(t *testing.T) {
 			fmt.Fprint(w, "<rss><channel><item><title>broken")
 		}))
 		defer srv.Close()
-		_, _, err := NewClient(testHTTP()).WithFeedURL(srv.URL).Fetch(context.Background())
+		_, _, err := NewClient(testHTTP()).SetFeedURL(srv.URL).Fetch(context.Background())
 		if err == nil || !strings.Contains(err.Error(), "parse") {
 			t.Errorf("expected parse error, got %v", err)
 		}
@@ -503,7 +519,7 @@ func TestClientFetchErrors(t *testing.T) {
 		defer srv.Close()
 		ctx, cancel := context.WithCancel(context.Background())
 		cancel()
-		if _, _, err := NewClient(testHTTP()).WithFeedURL(srv.URL).Fetch(ctx); err == nil {
+		if _, _, err := NewClient(testHTTP()).SetFeedURL(srv.URL).Fetch(ctx); err == nil {
 			t.Error("expected error for cancelled context")
 		}
 	})
@@ -515,7 +531,7 @@ func TestNewClientDefaults(t *testing.T) {
 	if c.FeedURL() != DefaultFeedURL {
 		t.Errorf("default feed URL = %q", c.FeedURL())
 	}
-	if c.WithFeedURL("  ").FeedURL() != DefaultFeedURL {
+	if c.SetFeedURL("  ").FeedURL() != DefaultFeedURL {
 		t.Error("blank override must keep the default")
 	}
 }

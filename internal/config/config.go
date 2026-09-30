@@ -109,6 +109,9 @@ func Load(path string) (*Config, error) {
 	cfg.Telegram.BotToken = os.Getenv(EnvTelegramBotToken)
 	cfg.LLM.APIKey = os.Getenv(EnvAnthropicAPIKey)
 	cfg.ClaudeCode.GitHubToken = os.Getenv(EnvGitHubToken)
+	// Normalise once so validation, config-check and the client all see the
+	// same value; a padded URL would otherwise fail url.Parse confusingly.
+	cfg.DrupalSecurity.FeedURL = strings.TrimSpace(cfg.DrupalSecurity.FeedURL)
 
 	if cfg.Digest.MaxPerSource == 0 {
 		cfg.Digest.MaxPerSource = DefaultMaxPerSource
