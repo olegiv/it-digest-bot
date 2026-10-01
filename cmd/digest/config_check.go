@@ -44,6 +44,7 @@ the first problem. Useful for vetting a config edit before systemctl start.`,
 					"  drupal_security.feed = %s\n"+
 					"  llm.model            = %s\n"+
 					"  llm.max_tokens       = %d\n"+
+					"  llm.timeout_seconds = %d\n"+
 					"  digest.lookback_h    = %d\n"+
 					"  feeds                = %d\n",
 				cfg.Telegram.Channel,
@@ -55,6 +56,7 @@ the first problem. Useful for vetting a config edit before systemctl start.`,
 				drupalFeed,
 				cfg.LLM.Model,
 				cfg.LLM.MaxTokens,
+				cfg.LLM.TimeoutSeconds,
 				cfg.Digest.LookbackHours,
 				len(cfg.Feeds),
 			)

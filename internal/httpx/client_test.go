@@ -14,6 +14,14 @@ import (
 
 func nopSleep(_ context.Context, _ time.Duration) error { return nil }
 
+func TestWithTimeoutOverridesHTTPClient(t *testing.T) {
+	t.Parallel()
+	c := New(WithTimeout(3 * time.Second))
+	if c.http == nil || c.http.Timeout != 3*time.Second {
+		t.Fatalf("timeout = %v, want 3s", c.http.Timeout)
+	}
+}
+
 func TestDoSuccessFirstTry(t *testing.T) {
 	t.Parallel()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

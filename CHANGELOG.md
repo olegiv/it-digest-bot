@@ -72,6 +72,14 @@ and this project adheres to [Semantic Versioning 2.0.0](https://semver.org/spec/
 
 ### Changed
 
+#### Daily digest
+
+- The Anthropic `/v1/messages` request now defaults to a 120-second
+  timeout instead of the generic 30-second `httpx` timeout. Large
+  daily-digest prompts can legitimately exceed 30 seconds; the new
+  optional `llm.timeout_seconds` setting makes the budget explicit
+  without changing feed or Telegram clients.
+
 #### Release watcher
 
 - `releasewatch.ItemResult` reports a single `Outcome` (`OutcomeError`,

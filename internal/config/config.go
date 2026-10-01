@@ -60,8 +60,16 @@ type DrupalSecurityConfig struct {
 type LLMConfig struct {
 	Model     string `toml:"model"`
 	MaxTokens int    `toml:"max_tokens"`
-	APIKey    string `toml:"-"` // from env only
+	// TimeoutSeconds bounds one Anthropic /v1/messages request. Large
+	// digests legitimately take longer than the generic 30-second httpx
+	// default, so zero selects DefaultLLMTimeoutSeconds instead.
+	TimeoutSeconds int    `toml:"timeout_seconds"`
+	APIKey         string `toml:"-"` // from env only
 }
+
+// DefaultLLMTimeoutSeconds gives large daily-digest prompts enough time to
+// complete while still bounding a hung Anthropic request.
+const DefaultLLMTimeoutSeconds = 120
 
 type LogConfig struct {
 	Level  string `toml:"level"`
@@ -109,6 +117,12 @@ func Load(path string) (*Config, error) {
 	cfg.Telegram.BotToken = os.Getenv(EnvTelegramBotToken)
 	cfg.LLM.APIKey = os.Getenv(EnvAnthropicAPIKey)
 	cfg.ClaudeCode.GitHubToken = os.Getenv(EnvGitHubToken)
+	// Default the LLM request timeout before validation and config-check so a
+	// deployment without the new key keeps working.
+	if cfg.LLM.TimeoutSeconds == 0 {
+		cfg.LLM.TimeoutSeconds = DefaultLLMTimeoutSeconds
+	}
+
 	// Normalise once so validation, config-check and the client all see the
 	// same value; a padded URL would otherwise fail url.Parse confusingly.
 	cfg.DrupalSecurity.FeedURL = strings.TrimSpace(cfg.DrupalSecurity.FeedURL)
@@ -155,6 +169,9 @@ func (c *Config) Validate() error {
 	}
 	if c.Digest.LookbackHours < 0 {
 		errs = append(errs, "digest.lookback_hours must be >= 0")
+	}
+	if c.LLM.TimeoutSeconds < 0 {
+		errs = append(errs, "llm.timeout_seconds must be >= 0")
 	}
 	if err := validateFeedURL("drupal_security.feed_url", c.DrupalSecurity.FeedURL); err != nil {
 		errs = append(errs, err.Error())

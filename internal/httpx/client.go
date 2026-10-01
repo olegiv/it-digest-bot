@@ -40,6 +40,16 @@ func WithHTTPClient(c *http.Client) Option {
 	return func(cl *Client) { cl.http = c }
 }
 
+// WithTimeout overrides the request timeout. The httpx default suits
+// ordinary APIs and feeds; long-running LLM calls can override it.
+func WithTimeout(d time.Duration) Option {
+	return func(cl *Client) {
+		if cl.http != nil {
+			cl.http.Timeout = d
+		}
+	}
+}
+
 // WithMaxRetries overrides the default retry budget.
 func WithMaxRetries(n int) Option {
 	return func(cl *Client) { cl.maxRetries = n }

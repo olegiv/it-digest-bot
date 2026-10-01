@@ -37,6 +37,10 @@ github_repo = "anthropics/claude-code"
 model      = "claude-sonnet-4-6"
 max_tokens = 1024
 
+# Per-request Anthropic /v1/messages timeout. Large daily digests can
+# legitimately take longer than the generic 30-second HTTP timeout.
+timeout_seconds = 120
+
 [log]
 level  = "info"   # debug | info | warn | error
 format = "json"   # json | text

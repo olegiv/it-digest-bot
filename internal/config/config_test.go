@@ -62,6 +62,9 @@ func TestLoadValid(t *testing.T) {
 	if len(cfg.Feeds) != 1 || cfg.Feeds[0].Name != "OpenAI" {
 		t.Errorf("feeds = %+v", cfg.Feeds)
 	}
+	if cfg.LLM.TimeoutSeconds != DefaultLLMTimeoutSeconds {
+		t.Errorf("timeout_seconds = %d, want %d", cfg.LLM.TimeoutSeconds, DefaultLLMTimeoutSeconds)
+	}
 	if cfg.ClaudeCode.GitHubToken != "" {
 		t.Errorf("GitHubToken should default to empty when env unset: %q", cfg.ClaudeCode.GitHubToken)
 	}
@@ -120,6 +123,18 @@ func TestValidateForDaily(t *testing.T) {
 	cfg.LLM.APIKey = "anthropic-stub"
 	if err := cfg.ValidateForDaily(); err != nil {
 		t.Errorf("unexpected error after setting API key: %v", err)
+	}
+}
+
+func TestValidateRejectsNegativeLLMTimeout(t *testing.T) {
+	t.Setenv(EnvTelegramBotToken, "tg-stub")
+	bad := strings.Replace(validTOML, `max_tokens = 1024`, `max_tokens = 1024
+timeout_seconds = -1`, 1)
+	p := writeConfig(t, bad)
+
+	_, err := Load(p)
+	if err == nil || !strings.Contains(err.Error(), "llm.timeout_seconds must be >= 0") {
+		t.Fatalf("expected timeout error, got %v", err)
 	}
 }
 
