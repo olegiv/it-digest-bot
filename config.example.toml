@@ -34,8 +34,8 @@ github_repo = "anthropics/claude-code"
 # feed_url = "https://www.drupal.org/security/all/rss.xml"
 
 [llm]
-model      = "claude-sonnet-4-6"
-max_tokens = 1024
+model      = "claude-sonnet-5-5"
+max_tokens = 2048
 
 # Per-request Anthropic /v1/messages timeout. Large daily digests can
 # legitimately take longer than the generic 30-second HTTP timeout.

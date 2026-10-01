@@ -6,8 +6,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"strings"
+	"time"
 
 	"golang.org/x/net/html"
 
@@ -20,6 +22,8 @@ import (
 // well above the largest plausible response (max_tokens=1024 produces
 // ~6 KB JSON in practice).
 const maxResponseBody = 4 << 20
+
+const sonnet55Model = "claude-sonnet-5-5"
 
 // AnthropicClient calls POST /v1/messages directly (no SDK) as specified.
 //
@@ -117,12 +121,28 @@ func buildSystemPrompt(maxPerSource int) string {
 
 // anthropicRequest mirrors /v1/messages. Only the fields we actually set.
 type anthropicRequest struct {
-	Model      string               `json:"model"`
-	MaxTokens  int                  `json:"max_tokens"`
-	System     []anthropicContent   `json:"system,omitempty"`
-	Messages   []anthropicMessage   `json:"messages"`
-	Tools      []anthropicTool      `json:"tools,omitempty"`
-	ToolChoice *anthropicToolChoice `json:"tool_choice,omitempty"`
+	Model        string                 `json:"model"`
+	MaxTokens    int                    `json:"max_tokens"`
+	System       []anthropicContent     `json:"system,omitempty"`
+	Messages     []anthropicMessage     `json:"messages"`
+	Tools        []anthropicTool        `json:"tools,omitempty"`
+	ToolChoice   *anthropicToolChoice   `json:"tool_choice,omitempty"`
+	Thinking     *anthropicThinking     `json:"thinking,omitempty"`
+	OutputConfig *anthropicOutputConfig `json:"output_config,omitempty"`
+}
+
+type anthropicThinking struct {
+	Type string `json:"type"`
+}
+
+type anthropicOutputConfig struct {
+	Effort string                `json:"effort"`
+	Format anthropicOutputFormat `json:"format"`
+}
+
+type anthropicOutputFormat struct {
+	Type   string          `json:"type"`
+	Schema json.RawMessage `json:"schema"`
 }
 
 type anthropicMessage struct {
@@ -157,6 +177,12 @@ type anthropicResponse struct {
 	Content    []anthropicContent `json:"content"`
 	StopReason string             `json:"stop_reason"`
 	Error      *anthropicError    `json:"error,omitempty"`
+	Usage      *anthropicUsage    `json:"usage,omitempty"`
+}
+
+type anthropicUsage struct {
+	InputTokens  int `json:"input_tokens"`
+	OutputTokens int `json:"output_tokens"`
 }
 
 type anthropicError struct {
@@ -170,9 +196,7 @@ type anthropicError struct {
 const submitSummariesToolName = "submit_summaries"
 
 // submitSummariesSchema is the JSON Schema for the tool's input. The
-// model is forced (via tool_choice) to call the tool with input matching
-// this schema, which gives us guaranteed-shape JSON without parsing
-// free-form text.
+// schema is shared by legacy tool calls and Sonnet 5.5 JSON outputs.
 const submitSummariesSchema = `{
   "type": "object",
   "properties": {
@@ -185,15 +209,17 @@ const submitSummariesSchema = `{
           "headline":     {"type": "string",  "description": "concise title rewrite, max 100 chars"},
           "blurb":        {"type": "string",  "description": "1-2 sentences on why it matters, max 280 chars, plain text"}
         },
-        "required": ["source_index", "headline", "blurb"]
+        "required": ["source_index", "headline", "blurb"],
+        "additionalProperties": false
       }
     }
   },
-  "required": ["summaries"]
+  "required": ["summaries"],
+  "additionalProperties": false
 }`
 
 // Summarize sends the articles to Claude and returns ranked summaries.
-// The response is expected to be a JSON array in the first text block.
+// Sonnet 5.5 returns schema-constrained JSON text; legacy models use a tool.
 func (c *AnthropicClient) Summarize(ctx context.Context, req SummarizeRequest) ([]Summary, error) {
 	if len(req.Articles) == 0 {
 		return nil, nil
@@ -202,6 +228,9 @@ func (c *AnthropicClient) Summarize(ctx context.Context, req SummarizeRequest) (
 	maxTokens := req.MaxTokens
 	if maxTokens <= 0 {
 		maxTokens = 1024
+		if model == sonnet55Model {
+			maxTokens = 2048
+		}
 	}
 
 	userText, err := buildUserPrompt(req.Articles, req.MaxPerSource)
@@ -214,7 +243,7 @@ func (c *AnthropicClient) Summarize(ctx context.Context, req SummarizeRequest) (
 	// tool, which gives us guaranteed-shape JSON in tool_use.input —
 	// no fragile text parsing, no chain-of-thought preambles eating
 	// max_tokens, and (unlike assistant-prefill) supported on Sonnet 4.6.
-	reqBody, err := json.Marshal(anthropicRequest{
+	payload := anthropicRequest{
 		Model:     model,
 		MaxTokens: maxTokens,
 		System:    []anthropicContent{{Type: "text", Text: buildSystemPrompt(req.MaxPerSource)}},
@@ -225,7 +254,20 @@ func (c *AnthropicClient) Summarize(ctx context.Context, req SummarizeRequest) (
 			InputSchema: json.RawMessage(submitSummariesSchema),
 		}},
 		ToolChoice: &anthropicToolChoice{Type: "tool", Name: submitSummariesToolName},
-	})
+	}
+	if model == sonnet55Model {
+		payload.Tools = nil
+		payload.ToolChoice = nil
+		payload.Thinking = &anthropicThinking{Type: "between_tools"}
+		payload.OutputConfig = &anthropicOutputConfig{
+			Effort: "medium",
+			Format: anthropicOutputFormat{Type: "json_schema", Schema: json.RawMessage(submitSummariesSchema)},
+		}
+		payload.System[0].Text = strings.Replace(payload.System[0].Text,
+			"Return your selection by calling the submit_summaries tool exactly once.",
+			`Return your selection as a JSON object with a "summaries" array matching the supplied schema. For every entry, copy source_index from that candidate's explicit "index" field, not its position in the array or an index inferred from another article. Ground the headline and blurb only in that same candidate's title and summary. Do not mix facts from different candidates or add facts from memory. Before returning, verify that each source_index points to the candidate actually summarized.`, 1)
+	}
+	reqBody, err := json.Marshal(payload)
 	if err != nil {
 		return nil, fmt.Errorf("marshal request: %w", err)
 	}
@@ -239,6 +281,10 @@ func (c *AnthropicClient) Summarize(ctx context.Context, req SummarizeRequest) (
 	httpReq.Header.Set("x-api-key", c.apiKey)
 	httpReq.Header.Set("anthropic-version", "2023-06-01")
 
+	started := time.Now()
+	defer func() {
+		slog.InfoContext(ctx, "Anthropic request complete", "model", model, "elapsed", time.Since(started))
+	}()
 	resp, err := c.http.Do(ctx, httpReq)
 	if err != nil {
 		return nil, fmt.Errorf("call /v1/messages: %w", err)
@@ -266,6 +312,13 @@ func (c *AnthropicClient) Summarize(ctx context.Context, req SummarizeRequest) (
 		}
 		return nil, fmt.Errorf("anthropic http %d: %s", resp.StatusCode, snippet(buf))
 	}
+	if apiResp.Usage != nil {
+		slog.InfoContext(ctx, "Anthropic token usage", "model", model,
+			"input_tokens", apiResp.Usage.InputTokens, "output_tokens", apiResp.Usage.OutputTokens)
+	}
+	if model == sonnet55Model {
+		return decodeStructuredSummaries(apiResp, len(req.Articles))
+	}
 
 	tu := firstToolUse(apiResp.Content, submitSummariesToolName)
 	if tu == nil {
@@ -289,6 +342,52 @@ func (c *AnthropicClient) Summarize(ctx context.Context, req SummarizeRequest) (
 	out := make([]Summary, len(input.Summaries))
 	for i, s := range input.Summaries {
 		out[i] = Summary{SourceIndex: s.SourceIndex, Headline: s.Headline, Blurb: s.Blurb}
+	}
+	return out, nil
+}
+
+func decodeStructuredSummaries(resp anthropicResponse, articleCount int) ([]Summary, error) {
+	switch resp.StopReason {
+	case "refusal":
+		return nil, fmt.Errorf("anthropic refused structured summaries (stop_reason=%q)", resp.StopReason)
+	case "max_tokens":
+		return nil, fmt.Errorf("anthropic truncated at max_tokens (raise llm.max_tokens or reduce candidates)")
+	case "end_turn":
+	default:
+		return nil, fmt.Errorf("unexpected structured output stop_reason=%q", resp.StopReason)
+	}
+	text := firstTextBlock(resp.Content)
+	if strings.TrimSpace(text) == "" {
+		return nil, fmt.Errorf("missing structured summaries text (stop_reason=%q)", resp.StopReason)
+	}
+	var input struct {
+		Summaries *[]struct {
+			SourceIndex *int    `json:"source_index"`
+			Headline    *string `json:"headline"`
+			Blurb       *string `json:"blurb"`
+		} `json:"summaries"`
+	}
+	decoder := json.NewDecoder(strings.NewReader(text))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&input); err != nil {
+		return nil, fmt.Errorf("decode structured summaries: %w", err)
+	}
+	var trailing json.RawMessage
+	if err := decoder.Decode(&trailing); err != io.EOF {
+		return nil, fmt.Errorf("structured summaries contain trailing content")
+	}
+	if input.Summaries == nil {
+		return nil, fmt.Errorf("structured output missing summaries array")
+	}
+	out := make([]Summary, len(*input.Summaries))
+	for i, s := range *input.Summaries {
+		if s.SourceIndex == nil || s.Headline == nil || s.Blurb == nil {
+			return nil, fmt.Errorf("structured summary %d missing required fields", i)
+		}
+		if *s.SourceIndex < 0 || *s.SourceIndex >= articleCount {
+			return nil, fmt.Errorf("structured summary %d source_index %d outside candidate range", i, *s.SourceIndex)
+		}
+		out[i] = Summary{SourceIndex: *s.SourceIndex, Headline: *s.Headline, Blurb: *s.Blurb}
 	}
 	return out, nil
 }

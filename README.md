@@ -160,13 +160,21 @@ All non-secret settings live in `config.toml`. See [`config.example.toml`](./con
 | `[claudecode]`    | `npm_package`  | yes      | `@anthropic-ai/claude-code` | |
 | `[claudecode]`    | `github_repo`  | yes      | `anthropics/claude-code` | |
 | `[drupal_security]` | `feed_url`   | no       | `https://www.drupal.org/security/all/rss.xml` | Override only; `https`, or `http` for `localhost`/loopback fixtures; no credentials, query string or fragment |
-| `[llm]`           | `model`        | phase 2  | `claude-sonnet-4-6`      | |
-| `[llm]`           | `max_tokens`   | phase 2  | `1024`                   | |
+| `[llm]`           | `model`        | phase 2  | —                       | Recommended: `claude-sonnet-5-5`; must be set explicitly |
+| `[llm]`           | `max_tokens`   | phase 2  | —                       | Recommended: `2048`; must be set explicitly |
+| `[llm]`           | `timeout_seconds` | no    | `120`                   | Per-request Anthropic timeout |
 | `[log]`           | `level`        | no       | `info`                   | `debug` / `info` / `warn` / `error` |
 | `[log]`           | `format`       | no       | `json`                   | `json` / `text` |
 | `[[feed]]`        | `name`, `url`  | phase 2  | —                        | One block per feed |
 
 Go release monitoring has no TOML settings; `digest watch` reads official stable releases from `https://go.dev/dl/?mode=json`.
+
+For `claude-sonnet-5-5`, the daily digest requests schema-constrained JSON
+with `thinking.type = "between_tools"` and medium effort, avoiding up-front
+thinking. Set `max_tokens = 2048` to leave room for complete summaries.
+Sonnet 4.6 and previously configured models retain the forced-tool request
+path, so switching back to the previous model remains supported. Model,
+request duration, and API token usage are logged without candidate content.
 
 Drupal security monitoring is always on as well. `digest watch` reads the combined drupal.org security feed (core, contributed projects and public service announcements) and posts one message per advisory that is not yet in `releases_seen`, oldest first, with risk level, vulnerability type, affected versions, CVEs and the upgrade path. On its very first run against a database the feed's current items (50 at the time of writing) are recorded as the baseline and a single "now tracked" notice is posted instead of one announcement each.
 

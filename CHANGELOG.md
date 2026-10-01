@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning 2.0.0](https://semver.org/spec/
 
 ## [Unreleased]
 
+### Changed
+
+- `digest daily` supports `claude-sonnet-5-5` through schema-constrained
+  JSON output, with no up-front thinking and medium effort. Recommended
+  configuration now uses this model with `max_tokens = 2048`; explicit
+  token budgets are preserved. Older models retain the forced-tool path.
+- Anthropic requests log the model, elapsed time, and reported input and
+  output token counts. Refused, truncated, missing, or malformed Sonnet
+  5.5 output fails the run before posting or recording articles.
+
 ## [0.3.0] — 2026-10-01
 
 ### Added
