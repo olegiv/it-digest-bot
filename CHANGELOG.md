@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning 2.0.0](https://semver.org/spec/
 
 ## [Unreleased]
 
+## [0.3.0] — 2026-10-01
+
 ### Added
 
 #### `digest watch`
@@ -72,6 +74,23 @@ and this project adheres to [Semantic Versioning 2.0.0](https://semver.org/spec/
 
 ### Changed
 
+#### Toolchain and dependencies
+
+- Go updated to `1.27.1`; build environments now require that version
+  or newer. Updated `gofeed` to `v1.5.0`, `golang.org/x/net` to
+  `v0.59.0`, `golang.org/x/sync` to `v0.23.0`, and
+  `modernc.org/sqlite` to `v1.60.1`, with compatible indirect
+  dependencies. Removed dependencies no longer needed by `gofeed`.
+  The database schema is unchanged.
+- Developer tools pinned to `golangci-lint v2.14.0` and
+  `gofumpt v0.12.0`; CI uses the same lint version.
+
+#### Deployment
+
+- `make deploy` now syncs systemd units as well as the binary,
+  reloads systemd when units change, and restarts changed timers
+  so updated schedules take effect.
+
 #### Daily digest
 
 - The Anthropic `/v1/messages` request now defaults to a 120-second
@@ -93,6 +112,13 @@ and this project adheres to [Semantic Versioning 2.0.0](https://semver.org/spec/
   than a stored field, so the two can never disagree.
 
 ### Fixed
+
+#### Systemd scheduling and alerts
+
+- The watcher uses `OnCalendar=hourly` with `Persistent=true` so
+  its one-shot service runs hourly and catches up after downtime.
+- Moved `OnFailure` into the `[Unit]` sections of the watcher and
+  daily services so failures trigger the Telegram notifier.
 
 #### Daily digest LLM JSON output
 
@@ -266,6 +292,7 @@ Initial public release.
 - Full local security audit, all actionable findings (1 HIGH, 4 MEDIUM, 4 LOW)
   closed in source before the initial release.
 
-[Unreleased]: https://github.com/olegiv/it-digest-bot/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/olegiv/it-digest-bot/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/olegiv/it-digest-bot/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/olegiv/it-digest-bot/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/olegiv/it-digest-bot/releases/tag/v0.1.0
