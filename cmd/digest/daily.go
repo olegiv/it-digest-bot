@@ -47,7 +47,7 @@ func newDailyCmd(flags *rootFlags) *cobra.Command {
 			// install their own SanitizeURL on whatever client they get, so we
 			// keep clients separate to avoid one constructor's sanitizer
 			// overwriting another on a shared client.
-			apiHTTP := httpx.New()
+			apiHTTP := httpx.New(httpx.WithTimeout(time.Duration(cfg.LLM.TimeoutSeconds) * time.Second))
 			feedHTTP := httpx.New()
 			tgHTTP := httpx.New()
 
