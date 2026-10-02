@@ -41,5 +41,6 @@ gzip "$OUT"
 find "$DIR" -maxdepth 1 -type f -name 'state-*.db.gz' -mtime +"$KEEP_DAYS" -delete
 
 count=$(find "$DIR" -maxdepth 1 -type f -name 'state-*.db.gz' | wc -l | tr -d ' ')
-bytes=$(du -sb "$DIR" 2>/dev/null | awk '{print $1}')
+# Count only database archives, without entering private rollback directories.
+bytes=$(find "$DIR" -maxdepth 1 -type f -name 'state-*.db.gz' -printf '%s\n' | awk '{total += $1} END {printf "%.0f\n", total}')
 echo "saved $OUT.gz; kept $count backups, ${bytes:-0} bytes total"
