@@ -481,7 +481,9 @@ func TestClientFetchErrors(t *testing.T) {
 			w.WriteHeader(http.StatusNotFound)
 		}))
 		defer srv.Close()
-		_, _, err := NewClient(testHTTP()).SetFeedURL(srv.URL).Fetch(context.Background())
+		c := NewClient(testHTTP()).SetFeedURL(srv.URL)
+		c.sleep = nopSleep
+		_, _, err := c.Fetch(context.Background())
 		if err == nil || !strings.Contains(err.Error(), "http 404") {
 			t.Errorf("expected http 404 error, got %v", err)
 		}
