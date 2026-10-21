@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning 2.0.0](https://semver.org/spec/
 
 ## [Unreleased]
 
+## [0.4.0] — 2026-10-21
+
 ### Added
 
 - `digest watch` now posts stable iOS and macOS releases from the Apple
@@ -35,6 +37,19 @@ and this project adheres to [Semantic Versioning 2.0.0](https://semver.org/spec/
 - Anthropic requests log the model, elapsed time, and reported input and
   output token counts. Refused, truncated, missing, or malformed Sonnet
   5.5 output fails the run before posting or recording articles.
+- `make install-tools` builds golangci-lint, gofumpt and govulncheck with
+  the toolchain `go.mod` selects. `go install pkg@version` otherwise uses
+  the tool's own `go.mod` and could pick an older Go that cannot load this
+  module's packages.
+- README: Telegram channel, latest release, Go version and license
+  badges; the coverage table lists every package with current numbers.
+
+### Fixed
+
+- `it-digest-backup.sh` counts only the top-level database archives when
+  reporting the backup size, so private rollback directories can no
+  longer make a completed backup fail. An empty archive set reports zero
+  while filesystem errors are still surfaced.
 
 ### Security
 
@@ -344,7 +359,8 @@ Initial public release.
 - Full local security audit, all actionable findings (1 HIGH, 4 MEDIUM, 4 LOW)
   closed in source before the initial release.
 
-[Unreleased]: https://github.com/olegiv/it-digest-bot/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/olegiv/it-digest-bot/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/olegiv/it-digest-bot/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/olegiv/it-digest-bot/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/olegiv/it-digest-bot/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/olegiv/it-digest-bot/releases/tag/v0.1.0
