@@ -1,8 +1,14 @@
 # it-digest-bot
 
-[![CI](https://github.com/olegiv/it-digest-bot/actions/workflows/ci.yml/badge.svg)](https://github.com/olegiv/it-digest-bot/actions/workflows/ci.yml) [![Vulncheck](https://github.com/olegiv/it-digest-bot/actions/workflows/vulncheck.yml/badge.svg)](https://github.com/olegiv/it-digest-bot/actions/workflows/vulncheck.yml) [![CodeQL](https://github.com/olegiv/it-digest-bot/actions/workflows/github-code-scanning/codeql/badge.svg)](https://github.com/olegiv/it-digest-bot/actions/workflows/github-code-scanning/codeql)
+[![Telegram channel](https://img.shields.io/badge/channel-@it__digest__info-26A5E4?logo=telegram)](https://t.me/it_digest_info)
+[![CI](https://github.com/olegiv/it-digest-bot/actions/workflows/ci.yml/badge.svg)](https://github.com/olegiv/it-digest-bot/actions/workflows/ci.yml)
+[![Vulncheck](https://github.com/olegiv/it-digest-bot/actions/workflows/vulncheck.yml/badge.svg)](https://github.com/olegiv/it-digest-bot/actions/workflows/vulncheck.yml)
+[![CodeQL](https://github.com/olegiv/it-digest-bot/actions/workflows/github-code-scanning/codeql/badge.svg)](https://github.com/olegiv/it-digest-bot/actions/workflows/github-code-scanning/codeql)
+[![Latest release](https://img.shields.io/github/v/release/olegiv/it-digest-bot)](https://github.com/olegiv/it-digest-bot/releases)
+[![Go version](https://img.shields.io/github/go-mod/go-version/olegiv/it-digest-bot?logo=go)](go.mod)
+[![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
 
-Posts Claude Code, Go and stable iOS/macOS release announcements and new Drupal security advisories — plus daily AI news digests — to a Telegram channel. Single static Go binary, scheduled by **systemd timers** on plain Ubuntu. No Docker, no web server, no long-running daemon.
+Posts Claude Code, Go and stable iOS/macOS release announcements and new Drupal security advisories — plus daily AI news digests — to the Telegram channel [@it_digest_info](https://t.me/it_digest_info). Single static Go binary, scheduled by **systemd timers** on plain Ubuntu. No Docker, no web server, no long-running daemon.
 
 ## Architecture
 
