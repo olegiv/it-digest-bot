@@ -6,6 +6,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/olegiv/it-digest-bot/internal/applerelease"
 	"github.com/olegiv/it-digest-bot/internal/claudecode"
 	"github.com/olegiv/it-digest-bot/internal/config"
 	"github.com/olegiv/it-digest-bot/internal/drupalsec"
@@ -20,7 +21,7 @@ func newWatchCmd(flags *rootFlags) *cobra.Command {
 	var dryRun bool
 	cmd := &cobra.Command{
 		Use:   "watch",
-		Short: "Check Claude Code, Go and Drupal security releases and post them",
+		Short: "Check Claude Code, Go, iOS/macOS and Drupal security releases and post them",
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			ctx := cmd.Context()
 			cfg, log, err := loadConfigAndLogger(flags.configPath, "watch")
@@ -42,18 +43,23 @@ func newWatchCmd(flags *rootFlags) *cobra.Command {
 			apiHTTP := httpx.New()
 			tgHTTP := httpx.New()
 
-			runner := &releasewatch.Runner{
-				Sources: []releasewatch.Source{
-					&claudecode.Source{
-						Package:    cfg.ClaudeCode.NPMPackage,
-						GitHubRepo: cfg.ClaudeCode.GitHubRepo,
-						NPM:        claudecode.NewNPMClient(apiHTTP),
-						GitHub:     claudecode.NewGitHubClient(apiHTTP, cfg.ClaudeCode.GitHubToken),
-						Logger:     log,
-					},
-					gorelease.NewSource(apiHTTP),
-					drupalSecuritySource(cfg, apiHTTP, log),
+			sources := []releasewatch.Source{
+				&claudecode.Source{
+					Package:    cfg.ClaudeCode.NPMPackage,
+					GitHubRepo: cfg.ClaudeCode.GitHubRepo,
+					NPM:        claudecode.NewNPMClient(apiHTTP),
+					GitHub:     claudecode.NewGitHubClient(apiHTTP, cfg.ClaudeCode.GitHubToken),
+					Logger:     log,
 				},
+				gorelease.NewSource(apiHTTP),
+				drupalSecuritySource(cfg, apiHTTP, log),
+			}
+			for _, p := range applerelease.Platforms {
+				sources = append(sources, appleReleaseSource(cfg, apiHTTP, log, p))
+			}
+
+			runner := &releasewatch.Runner{
+				Sources:  sources,
 				Channel:  cfg.Telegram.Channel,
 				Bot:      telegram.New(cfg.Telegram.BotToken, telegram.WithHTTPClient(tgHTTP)),
 				Releases: st.Releases,
@@ -89,6 +95,15 @@ func newWatchCmd(flags *rootFlags) *cobra.Command {
 func drupalSecuritySource(cfg *config.Config, h *httpx.Client, log *slog.Logger) *drupalsec.Source {
 	src := drupalsec.NewSource(h)
 	src.Client.SetFeedURL(cfg.DrupalSecurity.FeedURL)
+	src.Logger = log
+	return src
+}
+
+// appleReleaseSource wires the stable release source for one Apple platform,
+// honouring the optional feed URL override from config.
+func appleReleaseSource(cfg *config.Config, h *httpx.Client, log *slog.Logger, p applerelease.Platform) *applerelease.Source {
+	src := applerelease.NewSource(h, p)
+	src.Client.SetFeedURL(cfg.AppleReleases.FeedURL)
 	src.Logger = log
 	return src
 }

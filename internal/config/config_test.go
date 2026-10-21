@@ -236,3 +236,33 @@ func TestLoadRejectsUnknownDrupalSecurityKey(t *testing.T) {
 		t.Fatalf("expected unknown-key error, got %v", err)
 	}
 }
+
+func TestLoadAppleReleasesFeedURL(t *testing.T) {
+	t.Setenv(EnvTelegramBotToken, "tg-stub")
+
+	cfg, err := Load(writeConfig(t, validTOML))
+	if err != nil {
+		t.Fatalf("Load default: %v", err)
+	}
+	if cfg.AppleReleases.FeedURL != "" {
+		t.Errorf("default feed_url = %q, want empty", cfg.AppleReleases.FeedURL)
+	}
+
+	cfg, err = Load(writeConfig(t, validTOML+"\n[apple_releases]\nfeed_url = \" http://127.0.0.1:8080/releases.rss \"\n"))
+	if err != nil {
+		t.Fatalf("Load loopback override: %v", err)
+	}
+	if cfg.AppleReleases.FeedURL != "http://127.0.0.1:8080/releases.rss" {
+		t.Errorf("feed_url = %q, want trimmed override", cfg.AppleReleases.FeedURL)
+	}
+
+	_, err = Load(writeConfig(t, validTOML+"\n[apple_releases]\nfeed_url = \"http://example.org/releases.rss\"\n"))
+	if err == nil || !strings.Contains(err.Error(), "apple_releases.feed_url must use https") {
+		t.Errorf("remote http: err = %v", err)
+	}
+
+	_, err = Load(writeConfig(t, validTOML+"\n[apple_releases]\nenabled = true\n"))
+	if err == nil || !strings.Contains(err.Error(), "unknown config keys") {
+		t.Errorf("unknown key: err = %v", err)
+	}
+}

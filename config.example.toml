@@ -33,6 +33,15 @@ github_repo = "anthropics/claude-code"
 [drupal_security]
 # feed_url = "https://www.drupal.org/security/all/rss.xml"
 
+# Stable iOS and macOS releases are posted by `digest watch` from the Apple
+# Developer releases feed (betas, RCs and other Apple platforms are ignored).
+# Always on; feed_url only overrides the default
+# (https://developer.apple.com/news/releases/rss/releases.rss), with the same
+# rules as drupal_security.feed_url. Each platform's first run records the
+# feed's current releases as the baseline and posts one notice.
+[apple_releases]
+# feed_url = "https://developer.apple.com/news/releases/rss/releases.rss"
+
 [llm]
 model      = "claude-sonnet-5-5"
 max_tokens = 2048

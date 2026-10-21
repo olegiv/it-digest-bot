@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/olegiv/it-digest-bot/actions/workflows/ci.yml/badge.svg)](https://github.com/olegiv/it-digest-bot/actions/workflows/ci.yml) [![CodeQL](https://github.com/olegiv/it-digest-bot/actions/workflows/github-code-scanning/codeql/badge.svg)](https://github.com/olegiv/it-digest-bot/actions/workflows/github-code-scanning/codeql)
 
-Posts Claude Code and Go release announcements and new Drupal security advisories — plus daily AI news digests — to a Telegram channel. Single static Go binary, scheduled by **systemd timers** on plain Ubuntu. No Docker, no web server, no long-running daemon.
+Posts Claude Code, Go and stable iOS/macOS release announcements and new Drupal security advisories — plus daily AI news digests — to a Telegram channel. Single static Go binary, scheduled by **systemd timers** on plain Ubuntu. No Docker, no web server, no long-running daemon.
 
 ## Architecture
 
@@ -24,6 +24,10 @@ Posts Claude Code and Go release announcements and new Drupal security advisorie
  │                 │      HTTPS      ┌──────────────┐
  │                 │ ─────────────▶  │  drupal.org  │   security advisories
  │                 │ ◀─────────────  │  RSS feed    │   core + contrib + PSA
+ │                 │                 └──────────────┘
+ │                 │      HTTPS      ┌──────────────┐
+ │                 │ ─────────────▶  │ developer.   │   stable iOS / macOS
+ │                 │ ◀─────────────  │ apple.com RSS│   releases
  │                 │                 └──────────────┘
  │                 │      HTTPS      ┌──────────────┐
  │                 │ ─────────────▶  │   Telegram   │   sendMessage
@@ -139,7 +143,7 @@ A third systemd timer handles **daily server-side backups** automatically — no
 
 | Command                 | What it does                                                       |
 |-------------------------|--------------------------------------------------------------------|
-| `digest watch`          | Check Claude Code and stable Go releases and new Drupal security advisories; post what is new. |
+| `digest watch`          | Check Claude Code, stable Go and stable iOS/macOS releases and new Drupal security advisories; post what is new. |
 | `digest daily`          | Build and post the daily AI news digest via Claude.                |
 | `digest post --dry-run` | Render a sample release post to stdout without sending anything.   |
 | `digest migrate`        | Apply pending SQLite schema migrations.                            |
@@ -160,6 +164,7 @@ All non-secret settings live in `config.toml`. See [`config.example.toml`](./con
 | `[claudecode]`    | `npm_package`  | yes      | `@anthropic-ai/claude-code` | |
 | `[claudecode]`    | `github_repo`  | yes      | `anthropics/claude-code` | |
 | `[drupal_security]` | `feed_url`   | no       | `https://www.drupal.org/security/all/rss.xml` | Override only; `https`, or `http` for `localhost`/loopback fixtures; no credentials, query string or fragment |
+| `[apple_releases]` | `feed_url`    | no       | `https://developer.apple.com/news/releases/rss/releases.rss` | Override only; same rules as `drupal_security.feed_url` |
 | `[llm]`           | `model`        | phase 2  | —                       | Recommended: `claude-sonnet-5-5`; must be set explicitly |
 | `[llm]`           | `max_tokens`   | phase 2  | —                       | Recommended: `2048`; must be set explicitly |
 | `[llm]`           | `timeout_seconds` | no    | `120`                   | Per-request Anthropic timeout |
@@ -178,6 +183,8 @@ request duration, and API token usage are logged without candidate content.
 
 Drupal security monitoring is always on as well. `digest watch` reads the combined drupal.org security feed (core, contributed projects and public service announcements) and posts one message per advisory that is not yet in `releases_seen`, oldest first, with risk level, vulnerability type, affected versions, CVEs and the upgrade path. On its very first run against a database the feed's current items (50 at the time of writing) are recorded as the baseline and a single "now tracked" notice is posted instead of one announcement each.
 
+Stable iOS and macOS releases are always tracked too. `digest watch` reads the Apple Developer releases feed and keeps only titles of the exact form `iOS 27.0.1 (24A446)` / `macOS Tahoe 26.1 (25B78)`; betas, RCs, iPadOS/watchOS/tvOS/visionOS and Xcode are ignored. Each new version (deduplicated per platform under `releases_seen` package `ios` / `macos`) is posted with its build number, release-notes link and Apple's security-content index. Updates to an older major branch (e.g. iOS 18.7.10 while iOS 27 is current) are posted too, marked as an older-branch update. As with Drupal, each platform's first run records the feed's current releases as the baseline and posts a single "now tracked" notice.
+
 Secrets come from the environment only (never the TOML):
 
 | Env var                | Required? | Purpose |
@@ -188,7 +195,7 @@ Secrets come from the environment only (never the TOML):
 
 ## Roadmap
 
-- [x] **Phase 1** — Release watchers (Claude Code via npm/GitHub, Go via go.dev, Drupal security advisories via drupal.org RSS → Telegram).
+- [x] **Phase 1** — Release watchers (Claude Code via npm/GitHub, Go via go.dev, Drupal security advisories via drupal.org RSS, iOS/macOS via the Apple Developer releases RSS → Telegram).
 - [x] **Phase 2** — Daily AI digest (RSS aggregation → Claude summarization → Telegram).
 
 Both phases are fully implemented. The `daily` command fetches all configured feeds in parallel, dedupes against `articles_seen`, sends the 24h window to Claude via `POST /v1/messages` for ranking/summarization, renders a MarkdownV2 post grouped by source, and splits into chunks under Telegram's 4096-byte cap if needed.

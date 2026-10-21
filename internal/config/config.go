@@ -25,6 +25,7 @@ type Config struct {
 	Database       DatabaseConfig       `toml:"database"`
 	ClaudeCode     ClaudeCodeConfig     `toml:"claudecode"`
 	DrupalSecurity DrupalSecurityConfig `toml:"drupal_security"`
+	AppleReleases  AppleReleasesConfig  `toml:"apple_releases"`
 	LLM            LLMConfig            `toml:"llm"`
 	Log            LogConfig            `toml:"log"`
 	Digest         DigestConfig         `toml:"digest"`
@@ -54,6 +55,14 @@ type ClaudeCodeConfig struct {
 // so a fixture can be served locally for testing; credentials, query strings
 // and fragments are rejected (see validateFeedURL).
 type DrupalSecurityConfig struct {
+	FeedURL string `toml:"feed_url"`
+}
+
+// AppleReleasesConfig tunes the stable iOS/macOS release source of
+// `digest watch`. The source is always on; the only setting overrides the
+// Apple Developer releases feed URL (empty = the built-in default), with the
+// same rules as DrupalSecurityConfig.FeedURL.
+type AppleReleasesConfig struct {
 	FeedURL string `toml:"feed_url"`
 }
 
@@ -126,6 +135,7 @@ func Load(path string) (*Config, error) {
 	// Normalise once so validation, config-check and the client all see the
 	// same value; a padded URL would otherwise fail url.Parse confusingly.
 	cfg.DrupalSecurity.FeedURL = strings.TrimSpace(cfg.DrupalSecurity.FeedURL)
+	cfg.AppleReleases.FeedURL = strings.TrimSpace(cfg.AppleReleases.FeedURL)
 
 	if cfg.Digest.MaxPerSource == 0 {
 		cfg.Digest.MaxPerSource = DefaultMaxPerSource
@@ -174,6 +184,9 @@ func (c *Config) Validate() error {
 		errs = append(errs, "llm.timeout_seconds must be >= 0")
 	}
 	if err := validateFeedURL("drupal_security.feed_url", c.DrupalSecurity.FeedURL); err != nil {
+		errs = append(errs, err.Error())
+	}
+	if err := validateFeedURL("apple_releases.feed_url", c.AppleReleases.FeedURL); err != nil {
 		errs = append(errs, err.Error())
 	}
 	if len(errs) > 0 {
