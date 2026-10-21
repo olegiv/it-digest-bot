@@ -193,16 +193,16 @@ func (c *Client) Do(ctx context.Context, req *http.Request) (*http.Response, err
 
 		resp, err := c.http.Do(req)
 		if err != nil {
-			lastErr = err
-			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-				return nil, err
-			}
 			// A refused downgrade is policy, not a transient fault: don't
-			// retry, and don't return net/http's *url.Error, whose text
-			// carries the raw URLs (Telegram's has the bot token in it).
+			// retry it.
 			if re, ok := errors.AsType[*redirectError](err); ok {
 				return nil, fmt.Errorf("%s %s: redirect to %s: %w",
 					req.Method, c.urlSanitizer(req.URL), c.urlSanitizer(re.target), ErrInsecureRedirect)
+			}
+			err = c.sanitizeError(err)
+			lastErr = err
+			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+				return nil, err
 			}
 			continue
 		}
@@ -220,6 +220,22 @@ func (c *Client) Do(ctx context.Context, req *http.Request) (*http.Response, err
 	}
 	return nil, fmt.Errorf("%s %s: giving up after %d attempts: %w",
 		req.Method, c.urlSanitizer(req.URL), c.maxRetries+1, lastErr)
+}
+
+// sanitizeError rewrites the URL inside net/http's *url.Error with the
+// client's sanitizer. Its Error() text otherwise carries the raw request URL
+// — for Telegram, /bot<TOKEN>/ — into every network-failure message. The
+// wrapped cause is kept, so errors.Is / errors.As still see it.
+func (c *Client) sanitizeError(err error) error {
+	ue, ok := err.(*url.Error) //nolint:errorlint // net/http returns *url.Error unwrapped; only that top-level value is rewritten
+	if !ok {
+		return err
+	}
+	clean := "[unparsable URL]"
+	if u, perr := url.Parse(ue.URL); perr == nil {
+		clean = c.urlSanitizer(u)
+	}
+	return &url.Error{Op: ue.Op, URL: clean, Err: ue.Err}
 }
 
 func isRetryableStatus(code int) bool {

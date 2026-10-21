@@ -17,6 +17,12 @@ and this project adheres to [Semantic Versioning 2.0.0](https://semver.org/spec/
   forged feed content. A refused redirect fails immediately with
   `httpx.ErrInsecureRedirect` (no retries), and its error text goes through
   the client's URL sanitizer. The 10-redirect limit is unchanged.
+- Network-failure errors from `httpx.Client.Do` (DNS failure, refused
+  connection, timeout, context cancel) no longer leak the raw request URL.
+  net/http's `*url.Error` text embeds it, which put the Telegram bot token
+  (`/bot<TOKEN>/`) into the journal whenever Telegram was unreachable; its
+  URL now goes through the client's sanitizer, as the outer message's
+  already did.
 
 ### Added
 

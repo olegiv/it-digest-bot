@@ -302,3 +302,39 @@ func TestCheckRedirectLimit(t *testing.T) {
 		t.Errorf("https → https: %v", err)
 	}
 }
+
+// TestDoSanitizesNetworkErrors: net/http's *url.Error embeds the raw request
+// URL; Do must run it through the sanitizer on both the retry-exhausted and
+// the context paths, without hiding the cause from errors.Is.
+func TestDoSanitizesNetworkErrors(t *testing.T) {
+	t.Parallel()
+	mask := WithURLSanitizer(func(u *url.URL) string {
+		return strings.ReplaceAll(u.String(), "SECRET", "***")
+	})
+
+	c := New(WithSleep(nopSleep), WithMaxRetries(1), mask)
+	req, _ := http.NewRequest(http.MethodGet, "http://127.0.0.1:1/botSECRET/getMe", nil)
+	_, err := c.Do(context.Background(), req)
+	if err == nil || strings.Contains(err.Error(), "SECRET") || !strings.Contains(err.Error(), "/bot***/getMe") {
+		t.Errorf("retry-exhausted error leaks or lacks the masked URL: %v", err)
+	}
+	if _, ok := errors.AsType[*url.Error](err); !ok {
+		t.Errorf("cause lost: %v", err)
+	}
+
+	hang := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
+		<-r.Context().Done()
+	}))
+	defer hang.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+	c = New(WithSleep(nopSleep), mask)
+	req, _ = http.NewRequest(http.MethodGet, hang.URL+"/botSECRET/getMe", nil)
+	_, err = c.Do(ctx, req)
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("err = %v, want DeadlineExceeded", err)
+	}
+	if strings.Contains(err.Error(), "SECRET") {
+		t.Errorf("context error leaks the URL: %v", err)
+	}
+}
