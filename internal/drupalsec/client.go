@@ -9,6 +9,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"path"
@@ -88,6 +89,8 @@ func (a *Advisory) Version() string {
 type Client struct {
 	feedURL string
 	http    *httpx.Client
+	sleep   func(context.Context, time.Duration) error
+	logger  *slog.Logger
 }
 
 // NewClient returns a client for the combined drupal.org security feed.
@@ -95,7 +98,7 @@ func NewClient(h *httpx.Client) *Client {
 	if h == nil {
 		h = httpx.New()
 	}
-	return &Client{feedURL: DefaultFeedURL, http: h}
+	return &Client{feedURL: DefaultFeedURL, http: h, sleep: waitForRetry, logger: slog.Default()}
 }
 
 // SetFeedURL overrides the feed URL in place (config override or tests) and
@@ -113,7 +116,8 @@ func (c *Client) SetFeedURL(u string) *Client {
 func (c *Client) FeedURL() string { return c.feedURL }
 
 // Fetch downloads the feed and returns its advisories in feed order (newest
-// first) plus warnings for items that had to be skipped.
+// first) plus warnings for items that had to be skipped. Temporary 404s get
+// two additional attempts after 10s and 30s; other HTTP retries belong to httpx.
 func (c *Client) Fetch(ctx context.Context) ([]Advisory, []string, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.feedURL, nil)
 	if err != nil {
@@ -121,12 +125,31 @@ func (c *Client) Fetch(ctx context.Context) ([]Advisory, []string, error) {
 	}
 	req.Header.Set("Accept", "application/rss+xml, application/xml;q=0.9, text/xml;q=0.8, */*;q=0.5")
 
-	resp, err := c.http.Do(ctx, req)
-	if err != nil {
-		return nil, nil, fmt.Errorf("fetch drupal security feed: %w", err)
-	}
-	if resp == nil {
-		return nil, nil, fmt.Errorf("fetch drupal security feed: nil response")
+	delays := [...]time.Duration{10 * time.Second, 30 * time.Second}
+	var resp *http.Response
+	for attempt := 0; ; attempt++ {
+		resp, err = c.http.Do(ctx, req)
+		if err != nil {
+			return nil, nil, fmt.Errorf("fetch drupal security feed: %w", err)
+		}
+		if resp == nil {
+			return nil, nil, fmt.Errorf("fetch drupal security feed: nil response")
+		}
+		if resp.StatusCode != http.StatusNotFound {
+			break
+		}
+		// Release the connection before waiting, including on exhaustion.
+		_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, maxFeedBody))
+		_ = resp.Body.Close()
+		if attempt == len(delays) {
+			return nil, nil, fmt.Errorf("drupal security feed: http 404 after %d attempts", attempt+1)
+		}
+		delay := delays[attempt]
+		c.logger.WarnContext(ctx, "drupal security feed returned 404; retrying",
+			"source", PackageKey, "status", resp.StatusCode, "attempt", attempt+1, "delay", delay.String())
+		if err := c.sleep(ctx, delay); err != nil {
+			return nil, nil, fmt.Errorf("wait to retry drupal security feed: %w", err)
+		}
 	}
 	defer func() { _ = resp.Body.Close() }()
 
@@ -142,6 +165,17 @@ func (c *Client) Fetch(ctx context.Context) ([]Advisory, []string, error) {
 		return nil, nil, fmt.Errorf("drupal security feed: response exceeds %d bytes", maxFeedBody)
 	}
 	return ParseFeed(body)
+}
+
+func waitForRetry(ctx context.Context, delay time.Duration) error {
+	timer := time.NewTimer(delay)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return nil
+	}
 }
 
 // ParseFeed decodes the RSS document. Items without a guid or title, or

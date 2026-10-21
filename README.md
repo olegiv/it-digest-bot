@@ -191,6 +191,15 @@ request duration, and API token usage are logged without candidate content.
 
 Drupal security monitoring is always on as well. `digest watch` reads the combined drupal.org security feed (core, contributed projects and public service announcements) and posts one message per advisory that is not yet in `releases_seen`, oldest first, with risk level, vulnerability type, affected versions, CVEs and the upgrade path. On its very first run against a database the feed's current items (50 at the time of writing) are recorded as the baseline and a single "now tracked" notice is posted instead of one announcement each.
 
+Drupal feed HTTP 404 responses get up to three attempts, with waits of 10 and
+30 seconds, adding up to 40 seconds of retry delay plus request time. Each
+failed response is closed before waiting, and cancellation interrupts the wait.
+Retry warnings include the source, status, attempt number and delay. If all
+three attempts return 404, no Drupal advisories are recorded; healthy sources
+continue, and the watcher exits nonzero, triggering the existing systemd failure
+alert. Network errors, HTTP 429 and HTTP 5xx retain the shared HTTP retry policy;
+the additional 404 retries apply only to the Drupal security feed.
+
 Stable iOS and macOS releases are always tracked too. `digest watch` reads the Apple Developer releases feed and keeps only titles of the exact form `iOS 27.0.1 (24A446)` / `macOS Tahoe 26.1 (25B78)`; betas, RCs, iPadOS/watchOS/tvOS/visionOS and Xcode are ignored. Each new version (deduplicated per platform under `releases_seen` package `ios` / `macos`) is posted with its build number, release-notes link and Apple's security-content index. Updates to an older major branch (e.g. iOS 18.7.10 while iOS 27 is current) are posted too, marked as an older-branch update. As with Drupal, each platform's first run records the feed's current releases as the baseline and posts a single "now tracked" notice.
 
 Secrets come from the environment only (never the TOML):

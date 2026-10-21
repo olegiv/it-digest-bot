@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning 2.0.0](https://semver.org/spec/
 
 ## [Unreleased]
 
+### Fixed
+
+- Drupal security feed HTTP 404 responses are retried after 10 and 30
+  seconds before failing the watcher and triggering its failure alert.
+  Other release sources and HTTP retry policies are unchanged.
+
 ## [0.4.0] — 2026-10-21
 
 ### Added
