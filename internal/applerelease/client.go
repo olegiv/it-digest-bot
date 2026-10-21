@@ -100,6 +100,14 @@ func (r *Release) DisplayName() string {
 // cannot grow a post past telegram.MaxMessageBytes.
 var titleRe = regexp.MustCompile(`^(iOS|macOS)(?:\s+([A-Z][A-Za-z]{1,31}))?\s+(\d{1,4}(?:\.\d{1,4}){0,3})\s+\(([0-9A-Za-z]{1,16})\)$`)
 
+// prereleaseWords are rejected in titleRe's marketing-name slot, so a
+// reordered pre-release title ("iOS Beta 27.1 (…)", "macOS RC 27.2 (…)")
+// is never announced as a stable release.
+var prereleaseWords = map[string]bool{
+	"beta": true, "rc": true, "seed": true, "preview": true,
+	"developer": true, "public": true, "candidate": true, "release": true,
+}
+
 // Client fetches and parses the Apple Developer releases feed.
 type Client struct {
 	feedURL string
@@ -179,7 +187,7 @@ func ParseFeed(data []byte) ([]Release, []string, error) {
 	for i, item := range feed.Items {
 		title := strings.Join(strings.Fields(item.Title), " ")
 		m := titleRe.FindStringSubmatch(title)
-		if m == nil {
+		if m == nil || prereleaseWords[strings.ToLower(m[2])] {
 			continue
 		}
 		link := strings.TrimSpace(item.Link)

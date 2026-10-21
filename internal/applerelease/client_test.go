@@ -288,3 +288,22 @@ func TestValidAppleLinkRejectsNonASCII(t *testing.T) {
 		t.Error("real Apple link rejected")
 	}
 }
+
+func TestParseFeedSkipsPrereleaseNameWords(t *testing.T) {
+	t.Parallel()
+	var items []string
+	for i, title := range []string{
+		"iOS Beta 27.1 (24B5)", "macOS RC 27.2 (26B118)", "macOS Developer 27.2 (26B118)",
+		"iOS Seed 27.2 (24B5)", "iOS Public 27.2 (24B5)", "macOS PREVIEW 27.2 (26B1)",
+	} {
+		items = append(items, item(title, "p"+string(rune('a'+i)), "Mon, 19 Oct 2026 10:00:00 PDT", ""))
+	}
+	items = append(items, liveItems[8]) // macOS Tahoe 26.6.2 must still parse
+	releases, _, err := ParseFeed(feedWith(items...))
+	if err != nil {
+		t.Fatalf("ParseFeed: %v", err)
+	}
+	if len(releases) != 1 || releases[0].Name != "Tahoe" {
+		t.Errorf("releases = %+v, want only macOS Tahoe 26.6.2", releases)
+	}
+}
