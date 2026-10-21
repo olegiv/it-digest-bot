@@ -24,7 +24,7 @@ make lint          # run all linters
 make check         # fmt-check + vet + lint + test
 make deps          # go mod download
 make tidy          # go mod tidy
-make install-tools # install golangci-lint v2.11.4 + gofumpt v0.9.2 (pinned)
+make install-tools # install golangci-lint v2.14.0 + gofumpt v0.12.0 (pinned)
 make run-watch     # go run ./cmd/digest watch --config config.toml
 make run-dry       # render a fake release post to stdout (no network)
 ```

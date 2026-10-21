@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning 2.0.0](https://semver.org/spec/
 
 ## [Unreleased]
 
+### Added
+
+- `digest watch` now posts stable iOS and macOS releases from the Apple
+  Developer releases feed
+  (`https://developer.apple.com/news/releases/rss/releases.rss`). Only
+  titles of the form `iOS 27.0.1 (24A446)` / `macOS Tahoe 26.1 (25B78)`
+  match; betas, RCs, other Apple platforms and Xcode are ignored. Each new
+  version is recorded in `releases_seen` under package `ios` / `macos` and
+  posted with its build number, release-notes link and Apple's
+  security-content index; updates to an older major branch are labelled as
+  such. Each platform's first run records the feed's current releases as
+  the baseline and posts one "now tracked" notice. New package
+  `internal/applerelease`; optional `[apple_releases] feed_url` override,
+  validated like `drupal_security.feed_url` and shown by `config-check`.
+
 ### Changed
 
 - `digest daily` supports `claude-sonnet-5-5` through schema-constrained
