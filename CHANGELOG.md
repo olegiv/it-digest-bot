@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning 2.0.0](https://semver.org/spec/
 
 ## [Unreleased]
 
+### Security
+
+- The shared HTTP client (`httpx.New`) refuses redirects from `https` to
+  plain `http`, for every caller (release sources, feeds, Telegram,
+  Anthropic). Previously Go's default policy followed them, which would
+  resend the request — including, on a same-host redirect, the GitHub
+  `Authorization` header — unencrypted, and let a network attacker serve
+  forged feed content. A refused redirect fails immediately with
+  `httpx.ErrInsecureRedirect` (no retries), and its error text goes through
+  the client's URL sanitizer. The 10-redirect limit is unchanged.
+
 ### Added
 
 - `digest watch` now posts stable iOS and macOS releases from the Apple
