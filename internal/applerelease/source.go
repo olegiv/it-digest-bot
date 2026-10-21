@@ -94,12 +94,23 @@ func (s *Source) Candidates(ctx context.Context) ([]releasewatch.Candidate, erro
 			},
 		})
 	}
-	s.logger().Info("apple stable releases", "platform", s.Platform, "count", len(out), "skipped", len(warnings))
+	if len(out) == 0 {
+		s.logger().Warn("apple releases feed lists no stable release for platform; Apple may have changed the title format",
+			"platform", s.Platform, "feed_items_matched", len(all))
+	} else {
+		s.logger().Info("apple stable releases", "platform", s.Platform, "count", len(out), "skipped", len(warnings))
+	}
 	return out, nil
 }
 
-// SeedNotice implements releasewatch.Seeder.
+// SeedNotice implements releasewatch.Seeder. With no candidates it seeds
+// silently: nothing is recorded either, so Runner would otherwise repeat a
+// "0 releases" notice on every run until the feed lists a stable release for
+// the platform again.
 func (s *Source) SeedNotice(_ context.Context, cands []releasewatch.Candidate) (*releasewatch.Announcement, error) {
+	if len(cands) == 0 {
+		return nil, nil
+	}
 	var newest *Release
 	for _, cand := range cands {
 		r := s.byVersion[cand.Version]

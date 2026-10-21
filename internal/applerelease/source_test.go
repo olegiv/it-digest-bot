@@ -199,3 +199,30 @@ func TestSourcesThroughRunner(t *testing.T) {
 		t.Errorf("third run posted %d messages %d, want 0/3", res.PostedCount(), len(bot.messages))
 	}
 }
+
+// TestSourceSeedsSilentlyWhenEmpty: a feed window without a stable release
+// for the platform must not post a "0 releases" notice on every run.
+func TestSourceSeedsSilentlyWhenEmpty(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	st, err := store.Open(ctx, "file:"+filepath.Join(t.TempDir(), "empty.db"))
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+	if err := st.Migrate(ctx); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+
+	src := newTestSource(t, PlatformMacOS, feedWith(liveItems[1], liveItems[4])) // iOS RC + iOS stable only
+	bot := &recordingSender{}
+	r := &releasewatch.Runner{Sources: []releasewatch.Source{src}, Channel: "@ch", Bot: bot, Releases: st.Releases, Posts: st.Posts}
+	for range 2 {
+		if _, err := r.Run(ctx); err != nil {
+			t.Fatalf("Run: %v", err)
+		}
+	}
+	if len(bot.messages) != 0 {
+		t.Errorf("empty platform posted %d messages:\n%s", len(bot.messages), strings.Join(bot.messages, "\n---\n"))
+	}
+}

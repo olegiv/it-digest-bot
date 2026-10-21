@@ -232,3 +232,40 @@ func TestClientFetchTooLarge(t *testing.T) {
 		t.Errorf("err = %v, want size error", err)
 	}
 }
+
+func TestTitleReBoundsComponents(t *testing.T) {
+	t.Parallel()
+	for _, title := range []string{
+		"iOS " + strings.Repeat("9", 5000) + " (24A446)",
+		"iOS 27.0.1 (" + strings.Repeat("A", 17) + ")",
+		"macOS " + strings.Repeat("Tahoe", 10) + " 26.1 (25B78)",
+	} {
+		if titleRe.MatchString(title) {
+			t.Errorf("oversized title %.40q… must not match", title)
+		}
+	}
+}
+
+// TestReleaseNotesURLStaysOnApple pins the link checks against the escapes
+// a hostile feed could try.
+func TestReleaseNotesURLStaysOnApple(t *testing.T) {
+	t.Parallel()
+	for href, want := range map[string]string{
+		"//evil.example/x":                          "",
+		"https:evil.example":                        "",
+		"https://developer.apple.com@evil.example/": "",
+		"https://developer.apple.com.evil.example/": "",
+		"javascript:alert(1)":                       "",
+		"http://developer.apple.com/x":              "",
+		`/\evil.example/x`:                          "https://developer.apple.com/%5Cevil.example/x",
+		"/go/?id=ios-27_1-rn":                       "https://developer.apple.com/go/?id=ios-27_1-rn",
+	} {
+		frag := `<a href="` + href + `">View release notes</a>`
+		if got := releaseNotesURL(frag); got != want {
+			t.Errorf("releaseNotesURL(%q) = %q, want %q", href, got, want)
+		}
+	}
+	if got := releaseNotesURL(`<a href="/go/?id=x">View downloads</a>`); got != "" {
+		t.Errorf("non-notes anchor picked: %q", got)
+	}
+}

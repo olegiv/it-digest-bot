@@ -97,8 +97,9 @@ func (r *Release) DisplayName() string {
 // titleRe matches stable releases only: "iOS 27.0.1 (24A446)" and
 // "macOS Tahoe 26.1 (25B78)". It is anchored, so "iOS 27.2 RC (24B115)",
 // "macOS 27.2 beta 3 (26B5062e)" and other platforms ("iPadOS …") never
-// match.
-var titleRe = regexp.MustCompile(`^(iOS|macOS)(?:\s+([A-Z][A-Za-z]+))?\s+(\d+(?:\.\d+){0,3})\s+\(([0-9A-Za-z]+)\)$`)
+// match. Every component is length-bounded so a malformed or hostile title
+// cannot grow a post past telegram.MaxMessageBytes.
+var titleRe = regexp.MustCompile(`^(iOS|macOS)(?:\s+([A-Z][A-Za-z]{1,31}))?\s+(\d{1,4}(?:\.\d{1,4}){0,3})\s+\(([0-9A-Za-z]{1,16})\)$`)
 
 // Client fetches and parses the Apple Developer releases feed.
 type Client struct {

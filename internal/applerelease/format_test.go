@@ -67,3 +67,19 @@ func TestFormatSeedNotice(t *testing.T) {
 		t.Errorf("FormatSeedNotice(nil newest) =\n%s", got)
 	}
 }
+
+// TestFormatReleaseEscapesLinkBreakout checks that a link carrying ")" and
+// "](" cannot close the MarkdownV2 link early and inject a second target.
+func TestFormatReleaseEscapesLinkBreakout(t *testing.T) {
+	t.Parallel()
+	r := &Release{
+		Platform: PlatformIOS,
+		Version:  "27.0.1",
+		Link:     "https://developer.apple.com/news/releases/?id=1",
+		NotesURL: "https://developer.apple.com/go/?id=a)](https://evil.example",
+	}
+	got := FormatRelease(r, false)
+	if !strings.Contains(got, `[Release notes](https://developer.apple.com/go/?id=a\)](https://evil.example)`) {
+		t.Errorf("link not escaped:\n%s", got)
+	}
+}
