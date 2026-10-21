@@ -257,6 +257,7 @@ func TestReleaseNotesURLStaysOnApple(t *testing.T) {
 		"https://developer.apple.com.evil.example/": "",
 		"javascript:alert(1)":                       "",
 		"http://developer.apple.com/x":              "",
+		"/go/?id=x\u202e":                           "", // raw query keeps the bidi char → rejected
 		`/\evil.example/x`:                          "https://developer.apple.com/%5Cevil.example/x",
 		"/go/?id=ios-27_1-rn":                       "https://developer.apple.com/go/?id=ios-27_1-rn",
 	} {
@@ -267,5 +268,23 @@ func TestReleaseNotesURLStaysOnApple(t *testing.T) {
 	}
 	if got := releaseNotesURL(`<a href="/go/?id=x">View downloads</a>`); got != "" {
 		t.Errorf("non-notes anchor picked: %q", got)
+	}
+}
+
+func TestValidAppleLinkRejectsNonASCII(t *testing.T) {
+	t.Parallel()
+	for _, l := range []string{
+		"https://developer.apple.com/x\u202e",
+		"https://developer.apple.com/x\u200b",
+		"https://developer.apple.com/x\u00a0",
+		"https://developer.apple.com/x y",
+		"https://developer.apple.com/x\ty",
+	} {
+		if validAppleLink(l) {
+			t.Errorf("validAppleLink(%q) = true, want false", l)
+		}
+	}
+	if !validAppleLink("https://developer.apple.com/news/releases/?id=10192026a") {
+		t.Error("real Apple link rejected")
 	}
 }

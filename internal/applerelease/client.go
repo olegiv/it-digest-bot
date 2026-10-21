@@ -15,7 +15,6 @@ import (
 	"strconv"
 	"strings"
 	"time"
-	"unicode"
 
 	"github.com/mmcdole/gofeed"
 	"golang.org/x/net/html"
@@ -265,13 +264,14 @@ func nodeText(n *html.Node) string {
 }
 
 // validAppleLink reports whether link is safe to render: https on exactly
-// developer.apple.com, at most MaxLinkBytes, without credentials, whitespace
-// or control characters.
+// developer.apple.com, at most MaxLinkBytes, printable ASCII only (no
+// whitespace, control or invisible/bidi characters such as U+202E that could
+// disguise the target), without credentials.
 func validAppleLink(link string) bool {
 	if link == "" || len(link) > MaxLinkBytes {
 		return false
 	}
-	if strings.ContainsFunc(link, func(r rune) bool { return unicode.IsControl(r) || unicode.IsSpace(r) }) {
+	if strings.ContainsFunc(link, func(r rune) bool { return r <= ' ' || r > '~' }) {
 		return false
 	}
 	u, err := url.Parse(link)
