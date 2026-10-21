@@ -15,11 +15,12 @@ LDFLAGS         := -s -w $(VERSION_LDFLAGS)
 
 GOLANGCI_LINT_VERSION := v2.14.0
 GOFUMPT_VERSION       := v0.12.0
+GOVULNCHECK_VERSION   := v1.9.0
 
 .DEFAULT_GOAL := help
 
 .PHONY: all help build build-prod build-linux-amd64 build-darwin-arm64 build-all-platforms \
-        test test-race coverage coverage-html fmt fmt-check vet lint lint-go check deps tidy clean install-tools \
+        test test-race coverage coverage-html fmt fmt-check vet lint lint-go vulncheck check deps tidy clean install-tools \
         run-watch run-dry deploy rollback backup status uninstall dry-watch dry-daily
 
 all: build ## Build the default local/dev binary
@@ -79,6 +80,9 @@ lint-go: ## Run golangci-lint
 
 lint: lint-go ## Run all linters
 
+vulncheck: ## Report known vulnerabilities reachable from the code (needs network)
+	govulncheck ./...
+
 check: fmt-check vet lint test ## Run the full local quality gate
 
 deps: ## Download Go module dependencies
@@ -96,9 +100,15 @@ run-dry: ## Render a dry-run post to stdout
 clean: ## Remove build artifacts
 	rm -rf $(BIN_DIR) coverage.out coverage.html
 
+# `go install pkg@version` picks its toolchain from the tool's go.mod, which
+# can be older than ours; tools built that way cannot load this module's
+# packages. Pin them to the toolchain go.mod selects for this repo.
+TOOLS_TOOLCHAIN = GOTOOLCHAIN=$$($(GO) env GOVERSION)
+
 install-tools: ## Install pinned developer tools
-	$(GO) install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(GOLANGCI_LINT_VERSION)
-	$(GO) install mvdan.cc/gofumpt@$(GOFUMPT_VERSION)
+	$(TOOLS_TOOLCHAIN) $(GO) install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(GOLANGCI_LINT_VERSION)
+	$(TOOLS_TOOLCHAIN) $(GO) install mvdan.cc/gofumpt@$(GOFUMPT_VERSION)
+	$(TOOLS_TOOLCHAIN) $(GO) install golang.org/x/vuln/cmd/govulncheck@$(GOVULNCHECK_VERSION)
 
 deploy: ## Build + ship binary to server (HOST= overrides deploy/deploy.env)
 	HOST=$(HOST) ./deploy/deploy.sh

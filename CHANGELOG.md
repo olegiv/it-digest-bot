@@ -7,6 +7,35 @@ and this project adheres to [Semantic Versioning 2.0.0](https://semver.org/spec/
 
 ## [Unreleased]
 
+### Added
+
+- `digest watch` now posts stable iOS and macOS releases from the Apple
+  Developer releases feed
+  (`https://developer.apple.com/news/releases/rss/releases.rss`). Only
+  titles of the form `iOS 27.0.1 (24A446)` / `macOS Tahoe 26.1 (25B78)`
+  match; betas, RCs, other Apple platforms and Xcode are ignored. Each new
+  version is recorded in `releases_seen` under package `ios` / `macos` and
+  posted with its build number, release-notes link and Apple's
+  security-content index; updates to an older major branch are labelled as
+  such. Each platform's first run records the feed's current releases as
+  the baseline and posts one "now tracked" notice. New package
+  `internal/applerelease`; optional `[apple_releases] feed_url` override,
+  validated like `drupal_security.feed_url` and shown by `config-check`.
+- CI runs `govulncheck` (pinned v1.9.0) in `.github/workflows/vulncheck.yml`
+  on push/PR to `main` and every Monday, so newly published Go or
+  dependency advisories fail the build. Locally: `make vulncheck`;
+  `make install-tools` installs it.
+
+### Changed
+
+- `digest daily` supports `claude-sonnet-5-5` through schema-constrained
+  JSON output, with no up-front thinking and medium effort. Recommended
+  configuration now uses this model with `max_tokens = 2048`; explicit
+  token budgets are preserved. Older models retain the forced-tool path.
+- Anthropic requests log the model, elapsed time, and reported input and
+  output token counts. Refused, truncated, missing, or malformed Sonnet
+  5.5 output fails the run before posting or recording articles.
+
 ### Security
 
 - Go updated to `1.27.3` and `golang.org/x/net` to `v0.60.0`, fixing
@@ -29,31 +58,6 @@ and this project adheres to [Semantic Versioning 2.0.0](https://semver.org/spec/
   (`/bot<TOKEN>/`) into the journal whenever Telegram was unreachable; its
   URL now goes through the client's sanitizer, as the outer message's
   already did.
-
-### Added
-
-- `digest watch` now posts stable iOS and macOS releases from the Apple
-  Developer releases feed
-  (`https://developer.apple.com/news/releases/rss/releases.rss`). Only
-  titles of the form `iOS 27.0.1 (24A446)` / `macOS Tahoe 26.1 (25B78)`
-  match; betas, RCs, other Apple platforms and Xcode are ignored. Each new
-  version is recorded in `releases_seen` under package `ios` / `macos` and
-  posted with its build number, release-notes link and Apple's
-  security-content index; updates to an older major branch are labelled as
-  such. Each platform's first run records the feed's current releases as
-  the baseline and posts one "now tracked" notice. New package
-  `internal/applerelease`; optional `[apple_releases] feed_url` override,
-  validated like `drupal_security.feed_url` and shown by `config-check`.
-
-### Changed
-
-- `digest daily` supports `claude-sonnet-5-5` through schema-constrained
-  JSON output, with no up-front thinking and medium effort. Recommended
-  configuration now uses this model with `max_tokens = 2048`; explicit
-  token budgets are preserved. Older models retain the forced-tool path.
-- Anthropic requests log the model, elapsed time, and reported input and
-  output token counts. Refused, truncated, missing, or malformed Sonnet
-  5.5 output fails the run before posting or recording articles.
 
 ## [0.3.0] — 2026-10-01
 

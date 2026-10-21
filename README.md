@@ -1,6 +1,6 @@
 # it-digest-bot
 
-[![CI](https://github.com/olegiv/it-digest-bot/actions/workflows/ci.yml/badge.svg)](https://github.com/olegiv/it-digest-bot/actions/workflows/ci.yml) [![CodeQL](https://github.com/olegiv/it-digest-bot/actions/workflows/github-code-scanning/codeql/badge.svg)](https://github.com/olegiv/it-digest-bot/actions/workflows/github-code-scanning/codeql)
+[![CI](https://github.com/olegiv/it-digest-bot/actions/workflows/ci.yml/badge.svg)](https://github.com/olegiv/it-digest-bot/actions/workflows/ci.yml) [![Vulncheck](https://github.com/olegiv/it-digest-bot/actions/workflows/vulncheck.yml/badge.svg)](https://github.com/olegiv/it-digest-bot/actions/workflows/vulncheck.yml) [![CodeQL](https://github.com/olegiv/it-digest-bot/actions/workflows/github-code-scanning/codeql/badge.svg)](https://github.com/olegiv/it-digest-bot/actions/workflows/github-code-scanning/codeql)
 
 Posts Claude Code, Go and stable iOS/macOS release announcements and new Drupal security advisories — plus daily AI news digests — to a Telegram channel. Single static Go binary, scheduled by **systemd timers** on plain Ubuntu. No Docker, no web server, no long-running daemon.
 
@@ -218,13 +218,14 @@ make test-race       # with -race
 make coverage        # go test -cover ./...
 make coverage-html   # write coverage.out + coverage.html
 make lint            # golangci-lint
+make vulncheck       # govulncheck (known vulnerabilities; needs network)
 make check           # fmt-check + vet + lint + test
 make deps            # go mod download
 make tidy            # go mod tidy
 make fmt             # gofumpt -w .
 ```
 
-CI (GitHub Actions) runs build + vet + race tests + lint on every push and PR against `main`.
+CI (GitHub Actions) runs build + vet + race tests + lint on every push and PR against `main`. A separate workflow runs `govulncheck` on every push and PR against `main` and weekly, since new advisories appear without code changes.
 
 Test coverage targets (spec): ≥ 70% on `internal/claudecode`, `internal/telegram`, `internal/config`. Current (all above target):
 

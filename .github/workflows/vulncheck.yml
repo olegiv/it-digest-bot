@@ -1,0 +1,40 @@
+name: Vulncheck
+
+# govulncheck reports known vulnerabilities in the Go toolchain and module
+# dependencies that the code actually reaches. Advisories are published
+# independently of commits, so it also runs weekly against main.
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    - cron: "17 5 * * 1" # Mondays 05:17 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  govulncheck:
+    name: govulncheck
+    runs-on: ubuntu-latest
+    env:
+      # Keep in sync with GOVULNCHECK_VERSION in the Makefile.
+      GOVULNCHECK_VERSION: v1.9.0
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      # Build with the toolchain go.mod selects, not the (older) one
+      # govulncheck's own go.mod asks for, or it cannot load our packages.
+      - name: Install govulncheck
+        run: GOTOOLCHAIN="$(go env GOVERSION)" go install golang.org/x/vuln/cmd/govulncheck@"$GOVULNCHECK_VERSION"
+
+      - name: govulncheck
+        run: govulncheck ./...

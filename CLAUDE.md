@@ -21,10 +21,11 @@ make fmt-check     # fail if gofumpt would reformat files
 make vet           # go vet ./...
 make lint-go       # golangci-lint run ./... (config: .golangci.yml)
 make lint          # run all linters
+make vulncheck     # govulncheck ./... (known vulns reachable from the code; needs network)
 make check         # fmt-check + vet + lint + test
 make deps          # go mod download
 make tidy          # go mod tidy
-make install-tools # install golangci-lint v2.14.0 + gofumpt v0.12.0 (pinned)
+make install-tools # install golangci-lint v2.14.0 + gofumpt v0.12.0 + govulncheck v1.9.0 (pinned)
 make run-watch     # go run ./cmd/digest watch --config config.toml
 make run-dry       # render a fake release post to stdout (no network)
 ```
@@ -36,7 +37,7 @@ go test -run TestRenderAndSplit ./internal/digest # one test
 go test -race -run TestWatcher_Run ./internal/claudecode
 ```
 
-CI (`.github/workflows`) runs build + vet + race + lint on push/PR to `main`.
+CI (`.github/workflows`) runs build + vet + race + lint on push/PR to `main`; `vulncheck.yml` runs govulncheck on push/PR to `main` and weekly.
 
 ## Architecture
 
