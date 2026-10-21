@@ -1,8 +1,14 @@
 # it-digest-bot
 
-[![CI](https://github.com/olegiv/it-digest-bot/actions/workflows/ci.yml/badge.svg)](https://github.com/olegiv/it-digest-bot/actions/workflows/ci.yml) [![Vulncheck](https://github.com/olegiv/it-digest-bot/actions/workflows/vulncheck.yml/badge.svg)](https://github.com/olegiv/it-digest-bot/actions/workflows/vulncheck.yml) [![CodeQL](https://github.com/olegiv/it-digest-bot/actions/workflows/github-code-scanning/codeql/badge.svg)](https://github.com/olegiv/it-digest-bot/actions/workflows/github-code-scanning/codeql)
+[![Telegram channel](https://img.shields.io/badge/channel-@it__digest__info-26A5E4?logo=telegram)](https://t.me/it_digest_info)
+[![CI](https://github.com/olegiv/it-digest-bot/actions/workflows/ci.yml/badge.svg)](https://github.com/olegiv/it-digest-bot/actions/workflows/ci.yml)
+[![Vulncheck](https://github.com/olegiv/it-digest-bot/actions/workflows/vulncheck.yml/badge.svg)](https://github.com/olegiv/it-digest-bot/actions/workflows/vulncheck.yml)
+[![CodeQL](https://github.com/olegiv/it-digest-bot/actions/workflows/github-code-scanning/codeql/badge.svg)](https://github.com/olegiv/it-digest-bot/actions/workflows/github-code-scanning/codeql)
+[![Latest release](https://img.shields.io/github/v/release/olegiv/it-digest-bot)](https://github.com/olegiv/it-digest-bot/releases)
+[![Go version](https://img.shields.io/github/go-mod/go-version/olegiv/it-digest-bot?logo=go)](go.mod)
+[![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
 
-Posts Claude Code, Go and stable iOS/macOS release announcements and new Drupal security advisories — plus daily AI news digests — to a Telegram channel. Single static Go binary, scheduled by **systemd timers** on plain Ubuntu. No Docker, no web server, no long-running daemon.
+Posts Claude Code, Go and stable iOS/macOS release announcements and new Drupal security advisories — plus daily AI news digests — to the Telegram channel [@it_digest_info](https://t.me/it_digest_info). Single static Go binary, scheduled by **systemd timers** on plain Ubuntu. No Docker, no web server, no long-running daemon.
 
 ## Architecture
 
@@ -60,6 +66,8 @@ Each run exits on completion. journald stores the logs. Re-runs are idempotent b
 
 ## Quick start (local dev)
 
+Requires Go 1.27.3 or newer (the version in `go.mod`; earlier 1.27.x releases have known vulnerabilities in the standard library).
+
 ```bash
 # 1. build
 make build
@@ -77,7 +85,7 @@ export TELEGRAM_BOT_TOKEN=123456:AA...
 # 5. apply SQLite migrations to a local db
 ./bin/digest migrate --config config.toml
 
-# 6. do a real check against npm + GitHub + go.dev + Telegram
+# 6. do a real check against npm + GitHub + go.dev + drupal.org + developer.apple.com + Telegram
 ./bin/digest watch --config config.toml
 ```
 
@@ -212,7 +220,7 @@ make build-prod      # optimized host production build
 make build-linux-amd64  # optimized static linux/amd64 production build
 make build-darwin-arm64 # optimized darwin/arm64 production build
 make build-all-platforms # linux/amd64 + darwin/arm64 production builds
-make install-tools   # golangci-lint + gofumpt at pinned versions
+make install-tools   # golangci-lint + gofumpt + govulncheck at pinned versions
 make test            # go test ./...
 make test-race       # with -race
 make coverage        # go test -cover ./...
@@ -231,18 +239,24 @@ Test coverage targets (spec): ≥ 70% on `internal/claudecode`, `internal/telegr
 
 | Package           | Coverage |
 |-------------------|----------|
-| claudecode        | ~82%     |
-| telegram          | ~79%     |
-| config            | ~77%     |
-| digest            | ~82%     |
-| llm               | ~79%     |
+| applerelease      | ~92%     |
+| claudecode        | ~83%     |
+| config            | ~85%     |
+| digest            | ~85%     |
+| drupalsec         | ~98%     |
+| gorelease         | ~83%     |
+| httpx             | ~71%     |
+| llm               | ~88%     |
 | news              | ~91%     |
+| releasewatch      | ~89%     |
+| store             | ~78%     |
+| telegram          | ~79%     |
 
 ## Contributing
 
 PRs welcome. Before opening one:
 
-1. `make check` and `make test-race` must pass.
+1. `make check` and `make test-race` must pass; `make vulncheck` should report no vulnerabilities.
 2. Keep commits logically scoped (one concern per commit).
 3. No `fmt.Println` or `log.Printf` — use `log/slog`.
 4. Errors wrapped with `fmt.Errorf("...: %w", err)` — never bare.
