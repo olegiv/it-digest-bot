@@ -5,6 +5,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/olegiv/it-digest-bot/internal/applerelease"
 	"github.com/olegiv/it-digest-bot/internal/config"
 	"github.com/olegiv/it-digest-bot/internal/drupalsec"
 )
@@ -33,6 +34,10 @@ the first problem. Useful for vetting a config edit before systemctl start.`,
 			if drupalFeed == "" {
 				drupalFeed = drupalsec.DefaultFeedURL + " (default)"
 			}
+			appleFeed := cfg.AppleReleases.FeedURL
+			if appleFeed == "" {
+				appleFeed = applerelease.DefaultFeedURL + " (default)"
+			}
 			_, _ = fmt.Fprintf(cmd.OutOrStdout(),
 				"config OK\n"+
 					"  telegram.channel     = %s\n"+
@@ -42,6 +47,7 @@ the first problem. Useful for vetting a config edit before systemctl start.`,
 					"  claudecode.repo      = %s\n"+
 					"  claudecode.token_set = %t\n"+
 					"  drupal_security.feed = %s\n"+
+					"  apple_releases.feed  = %s\n"+
 					"  llm.model            = %s\n"+
 					"  llm.max_tokens       = %d\n"+
 					"  llm.timeout_seconds = %d\n"+
@@ -54,6 +60,7 @@ the first problem. Useful for vetting a config edit before systemctl start.`,
 				cfg.ClaudeCode.GitHubRepo,
 				cfg.ClaudeCode.GitHubToken != "",
 				drupalFeed,
+				appleFeed,
 				cfg.LLM.Model,
 				cfg.LLM.MaxTokens,
 				cfg.LLM.TimeoutSeconds,

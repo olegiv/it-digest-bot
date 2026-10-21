@@ -20,7 +20,39 @@ const (
 	DefaultTimeout    = 30 * time.Second
 	DefaultMaxRetries = 3
 	DefaultBaseDelay  = 500 * time.Millisecond
+
+	// maxRedirects matches net/http's default policy, which a custom
+	// CheckRedirect replaces.
+	maxRedirects = 10
 )
+
+// ErrInsecureRedirect is returned by Client.Do when a server redirects an
+// https request to plain http. Following it would resend the request (and,
+// for a same-host redirect, its Authorization header) unencrypted and let a
+// network attacker answer it, so the default client refuses it.
+var ErrInsecureRedirect = errors.New("refused redirect from https to http")
+
+// redirectError carries the refused target so Do can report it through the
+// client's URL sanitizer instead of net/http's raw *url.Error text.
+type redirectError struct {
+	target *url.URL
+}
+
+func (e *redirectError) Error() string { return ErrInsecureRedirect.Error() }
+func (e *redirectError) Unwrap() error { return ErrInsecureRedirect }
+
+// checkRedirect is the default client's redirect policy: net/http's limit of
+// maxRedirects, plus no https → http downgrade. http → http stays allowed so
+// plain-http loopback fixtures keep working.
+func checkRedirect(req *http.Request, via []*http.Request) error {
+	if len(via) >= maxRedirects {
+		return fmt.Errorf("stopped after %d redirects", maxRedirects)
+	}
+	if len(via) > 0 && via[len(via)-1].URL.Scheme == "https" && req.URL.Scheme != "https" {
+		return &redirectError{target: req.URL}
+	}
+	return nil
+}
 
 // Client wraps *http.Client with retry/backoff and default headers.
 type Client struct {
@@ -35,7 +67,9 @@ type Client struct {
 // Option configures the client at construction time.
 type Option func(*Client)
 
-// WithHTTPClient installs a custom *http.Client (e.g. from httptest).
+// WithHTTPClient installs a custom *http.Client (e.g. from httptest). Its
+// own CheckRedirect applies; the https → http refusal of the default client
+// does not.
 func WithHTTPClient(c *http.Client) Option {
 	return func(cl *Client) { cl.http = c }
 }
@@ -103,7 +137,7 @@ func defaultURLSanitizer(u *url.URL) string {
 // New returns a Client with sensible defaults.
 func New(opts ...Option) *Client {
 	c := &Client{
-		http:         &http.Client{Timeout: DefaultTimeout},
+		http:         &http.Client{Timeout: DefaultTimeout, CheckRedirect: checkRedirect},
 		userAgent:    version.UserAgent(),
 		maxRetries:   DefaultMaxRetries,
 		baseDelay:    DefaultBaseDelay,
@@ -159,6 +193,13 @@ func (c *Client) Do(ctx context.Context, req *http.Request) (*http.Response, err
 
 		resp, err := c.http.Do(req)
 		if err != nil {
+			// A refused downgrade is policy, not a transient fault: don't
+			// retry it.
+			if re, ok := errors.AsType[*redirectError](err); ok {
+				return nil, fmt.Errorf("%s %s: redirect to %s: %w",
+					req.Method, c.urlSanitizer(req.URL), c.urlSanitizer(re.target), ErrInsecureRedirect)
+			}
+			err = c.sanitizeError(err)
 			lastErr = err
 			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 				return nil, err
@@ -179,6 +220,22 @@ func (c *Client) Do(ctx context.Context, req *http.Request) (*http.Response, err
 	}
 	return nil, fmt.Errorf("%s %s: giving up after %d attempts: %w",
 		req.Method, c.urlSanitizer(req.URL), c.maxRetries+1, lastErr)
+}
+
+// sanitizeError rewrites the URL inside net/http's *url.Error with the
+// client's sanitizer. Its Error() text otherwise carries the raw request URL
+// — for Telegram, /bot<TOKEN>/ — into every network-failure message. The
+// wrapped cause is kept, so errors.Is / errors.As still see it.
+func (c *Client) sanitizeError(err error) error {
+	ue, ok := err.(*url.Error) //nolint:errorlint // net/http returns *url.Error unwrapped; only that top-level value is rewritten
+	if !ok {
+		return err
+	}
+	clean := "[unparsable URL]"
+	if u, perr := url.Parse(ue.URL); perr == nil {
+		clean = c.urlSanitizer(u)
+	}
+	return &url.Error{Op: ue.Op, URL: clean, Err: ue.Err}
 }
 
 func isRetryableStatus(code int) bool {

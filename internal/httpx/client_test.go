@@ -2,6 +2,7 @@ package httpx
 
 import (
 	"context"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -206,5 +207,134 @@ func TestContextCancelled(t *testing.T) {
 	_, err := c.Do(ctx, req)
 	if err == nil {
 		t.Fatal("expected cancelled error")
+	}
+}
+
+func TestDoRefusesHTTPSDowngradeRedirect(t *testing.T) {
+	t.Parallel()
+	var plainHits int32
+	plain := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		atomic.AddInt32(&plainHits, 1)
+		_, _ = w.Write([]byte("forged"))
+	}))
+	defer plain.Close()
+	var tlsHits int32
+	secure := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&tlsHits, 1)
+		http.Redirect(w, r, plain.URL+"/botSECRET/feed", http.StatusFound)
+	}))
+	defer secure.Close()
+
+	c := New(WithSleep(nopSleep), WithURLSanitizer(func(u *url.URL) string {
+		return strings.ReplaceAll(u.String(), "SECRET", "***")
+	}))
+	// Trust the test server's certificate but keep New's redirect policy.
+	c.http.Transport = secure.Client().Transport
+
+	req, _ := http.NewRequest(http.MethodGet, secure.URL+"/feed", nil)
+	resp, err := c.Do(context.Background(), req)
+	if resp != nil {
+		_ = resp.Body.Close()
+		t.Fatal("downgrade redirect must not return a response")
+	}
+	if !errors.Is(err, ErrInsecureRedirect) {
+		t.Fatalf("err = %v, want ErrInsecureRedirect", err)
+	}
+	if strings.Contains(err.Error(), "SECRET") || !strings.Contains(err.Error(), "/bot***/feed") {
+		t.Errorf("error must use the sanitizer for the redirect target: %v", err)
+	}
+	if n := atomic.LoadInt32(&plainHits); n != 0 {
+		t.Errorf("plain-http target was contacted %d times", n)
+	}
+	if n := atomic.LoadInt32(&tlsHits); n != 1 {
+		t.Errorf("https origin hit %d times, want 1 (no retry on a refused redirect)", n)
+	}
+}
+
+func TestDoFollowsSafeRedirects(t *testing.T) {
+	t.Parallel()
+	final := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte("ok"))
+	}))
+	defer final.Close()
+	secure := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, final.URL+"/x", http.StatusMovedPermanently)
+	}))
+	defer secure.Close()
+	plainFinal := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte("ok"))
+	}))
+	defer plainFinal.Close()
+	plain := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, plainFinal.URL+"/x", http.StatusFound)
+	}))
+	defer plain.Close()
+
+	c := New(WithSleep(nopSleep))
+	// httptest TLS servers share one CA, so either client's transport
+	// trusts both.
+	c.http.Transport = secure.Client().Transport
+	for _, start := range []string{secure.URL, plain.URL} {
+		req, _ := http.NewRequest(http.MethodGet, start, nil)
+		resp, err := c.Do(context.Background(), req)
+		if err != nil {
+			t.Fatalf("%s: Do: %v", start, err)
+		}
+		b, _ := io.ReadAll(resp.Body)
+		_ = resp.Body.Close()
+		if string(b) != "ok" {
+			t.Errorf("%s: body = %q", start, b)
+		}
+	}
+}
+
+func TestCheckRedirectLimit(t *testing.T) {
+	t.Parallel()
+	req, _ := http.NewRequest(http.MethodGet, "https://example.org/", nil)
+	via := make([]*http.Request, maxRedirects)
+	for i := range via {
+		via[i] = req
+	}
+	if err := checkRedirect(req, via); err == nil || errors.Is(err, ErrInsecureRedirect) {
+		t.Errorf("checkRedirect at limit = %v, want redirect-limit error", err)
+	}
+	if err := checkRedirect(req, via[:1]); err != nil {
+		t.Errorf("https → https: %v", err)
+	}
+}
+
+// TestDoSanitizesNetworkErrors: net/http's *url.Error embeds the raw request
+// URL; Do must run it through the sanitizer on both the retry-exhausted and
+// the context paths, without hiding the cause from errors.Is.
+func TestDoSanitizesNetworkErrors(t *testing.T) {
+	t.Parallel()
+	mask := WithURLSanitizer(func(u *url.URL) string {
+		return strings.ReplaceAll(u.String(), "SECRET", "***")
+	})
+
+	c := New(WithSleep(nopSleep), WithMaxRetries(1), mask)
+	req, _ := http.NewRequest(http.MethodGet, "http://127.0.0.1:1/botSECRET/getMe", nil)
+	_, err := c.Do(context.Background(), req)
+	if err == nil || strings.Contains(err.Error(), "SECRET") || !strings.Contains(err.Error(), "/bot***/getMe") {
+		t.Errorf("retry-exhausted error leaks or lacks the masked URL: %v", err)
+	}
+	if _, ok := errors.AsType[*url.Error](err); !ok {
+		t.Errorf("cause lost: %v", err)
+	}
+
+	hang := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
+		<-r.Context().Done()
+	}))
+	defer hang.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+	c = New(WithSleep(nopSleep), mask)
+	req, _ = http.NewRequest(http.MethodGet, hang.URL+"/botSECRET/getMe", nil)
+	_, err = c.Do(ctx, req)
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("err = %v, want DeadlineExceeded", err)
+	}
+	if strings.Contains(err.Error(), "SECRET") {
+		t.Errorf("context error leaks the URL: %v", err)
 	}
 }

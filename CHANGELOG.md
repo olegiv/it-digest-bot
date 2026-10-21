@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning 2.0.0](https://semver.org/spec/
 
 ## [Unreleased]
 
+### Added
+
+- `digest watch` now posts stable iOS and macOS releases from the Apple
+  Developer releases feed
+  (`https://developer.apple.com/news/releases/rss/releases.rss`). Only
+  titles of the form `iOS 27.0.1 (24A446)` / `macOS Tahoe 26.1 (25B78)`
+  match; betas, RCs, other Apple platforms and Xcode are ignored. Each new
+  version is recorded in `releases_seen` under package `ios` / `macos` and
+  posted with its build number, release-notes link and Apple's
+  security-content index; updates to an older major branch are labelled as
+  such. Each platform's first run records the feed's current releases as
+  the baseline and posts one "now tracked" notice. New package
+  `internal/applerelease`; optional `[apple_releases] feed_url` override,
+  validated like `drupal_security.feed_url` and shown by `config-check`.
+- CI runs `govulncheck` (pinned v1.9.0) in `.github/workflows/vulncheck.yml`
+  on push/PR to `main` and every Monday, so newly published Go or
+  dependency advisories fail the build. Locally: `make vulncheck`;
+  `make install-tools` installs it.
+
 ### Changed
 
 - `digest daily` supports `claude-sonnet-5-5` through schema-constrained
@@ -16,6 +35,29 @@ and this project adheres to [Semantic Versioning 2.0.0](https://semver.org/spec/
 - Anthropic requests log the model, elapsed time, and reported input and
   output token counts. Refused, truncated, missing, or malformed Sonnet
   5.5 output fails the run before posting or recording articles.
+
+### Security
+
+- Go updated to `1.27.3` and `golang.org/x/net` to `v0.60.0`, fixing
+  standard-library and HTTP/2 vulnerabilities reachable from the HTTP
+  client (govulncheck: GO-2026-6809 compromised x509 intermediates,
+  GO-2026-6605 HTTP/1 client desync, GO-2026-6610 malformed HTTP/2
+  framing headers, GO-2026-6608 MIME header memory limit bypass, and
+  others). Build environments now require Go 1.27.3.
+- The shared HTTP client (`httpx.New`) refuses redirects from `https` to
+  plain `http`, for every caller (release sources, feeds, Telegram,
+  Anthropic). Previously Go's default policy followed them, which would
+  resend the request — including, on a same-host redirect, the GitHub
+  `Authorization` header — unencrypted, and let a network attacker serve
+  forged feed content. A refused redirect fails immediately with
+  `httpx.ErrInsecureRedirect` (no retries), and its error text goes through
+  the client's URL sanitizer. The 10-redirect limit is unchanged.
+- Network-failure errors from `httpx.Client.Do` (DNS failure, refused
+  connection, timeout, context cancel) no longer leak the raw request URL.
+  net/http's `*url.Error` text embeds it, which put the Telegram bot token
+  (`/bot<TOKEN>/`) into the journal whenever Telegram was unreachable; its
+  URL now goes through the client's sanitizer, as the outer message's
+  already did.
 
 ## [0.3.0] — 2026-10-01
 

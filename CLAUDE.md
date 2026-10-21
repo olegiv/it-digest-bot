@@ -21,10 +21,11 @@ make fmt-check     # fail if gofumpt would reformat files
 make vet           # go vet ./...
 make lint-go       # golangci-lint run ./... (config: .golangci.yml)
 make lint          # run all linters
+make vulncheck     # govulncheck ./... (known vulns reachable from the code; needs network)
 make check         # fmt-check + vet + lint + test
 make deps          # go mod download
 make tidy          # go mod tidy
-make install-tools # install golangci-lint v2.11.4 + gofumpt v0.9.2 (pinned)
+make install-tools # install golangci-lint v2.14.0 + gofumpt v0.12.0 + govulncheck v1.9.0 (pinned)
 make run-watch     # go run ./cmd/digest watch --config config.toml
 make run-dry       # render a fake release post to stdout (no network)
 ```
@@ -36,7 +37,7 @@ go test -run TestRenderAndSplit ./internal/digest # one test
 go test -race -run TestWatcher_Run ./internal/claudecode
 ```
 
-CI (`.github/workflows`) runs build + vet + race + lint on push/PR to `main`.
+CI (`.github/workflows`) runs build + vet + race + lint on push/PR to `main`; `vulncheck.yml` runs govulncheck on push/PR to `main` and weekly.
 
 ## Architecture
 
@@ -44,7 +45,7 @@ CI (`.github/workflows`) runs build + vet + race + lint on push/PR to `main`.
 
 Two flows, each driven by its own systemd unit pair under `deploy/systemd/`:
 
-1. **`digest watch`** (hourly) — `internal/releasewatch.Runner` executes release sources and handles the shared seen-check, dry-run, Telegram send, and audit-log flow. `internal/claudecode.Source` queries npm `dist-tags.latest` for `@anthropic-ai/claude-code`, skips already-posted `(package, version)` rows, then requires GitHub `/releases/latest` to name the same version before posting. `internal/gorelease.Source` queries `https://go.dev/dl/?mode=json` and announces every unseen stable Go version returned there. `internal/drupalsec.Source` fetches the combined drupal.org security RSS feed (core + contrib + PSA), parses each advisory (ID, project, risk, affected versions, CVEs, solution) and posts every unseen one oldest-first under package `drupal-security`; it implements the optional `releasewatch.Seeder` hook, so on the very first run (no `releases_seen` row for its package) the runner records the feed's current items (50 at the time of writing) as seen and posts one notice instead of one announcement each. Re-running is safe; already-seen and deferred candidates do no Telegram or DB writes. `Runner.MaxPostsPerRun` (default 10) caps send attempts per run across all sources (seeding excluded); capped candidates stay unrecorded and are posted on later runs.
+1. **`digest watch`** (hourly) — `internal/releasewatch.Runner` executes release sources and handles the shared seen-check, dry-run, Telegram send, and audit-log flow. `internal/claudecode.Source` queries npm `dist-tags.latest` for `@anthropic-ai/claude-code`, skips already-posted `(package, version)` rows, then requires GitHub `/releases/latest` to name the same version before posting. `internal/gorelease.Source` queries `https://go.dev/dl/?mode=json` and announces every unseen stable Go version returned there. `internal/drupalsec.Source` fetches the combined drupal.org security RSS feed (core + contrib + PSA), parses each advisory (ID, project, risk, affected versions, CVEs, solution) and posts every unseen one oldest-first under package `drupal-security`; it implements the optional `releasewatch.Seeder` hook, so on the very first run (no `releases_seen` row for its package) the runner records the feed's current items (50 at the time of writing) as seen and posts one notice instead of one announcement each. `internal/applerelease.Source` (one instance per platform in `applerelease.Platforms`: iOS, macOS) reads the Apple Developer releases RSS, keeps only stable titles (`iOS 27.0.1 (24A446)`, `macOS Tahoe 26.1 (25B78)` — betas/RCs/other OSes never match the anchored regex) and posts each unseen version under package `ios` / `macos`, flagging older-major-branch updates; it is a `Seeder` too, so each platform's first run records the feed window and posts one notice. Re-running is safe; already-seen and deferred candidates do no Telegram or DB writes. `Runner.MaxPostsPerRun` (default 10) caps send attempts per run across all sources (seeding excluded); capped candidates stay unrecorded and are posted on later runs.
 
 2. **`digest daily`** (08:00 Europe/Zurich) — `internal/digest/Builder`: `errgroup` parallel-fetch of all `[[feed]]` entries → dedupe via `articles_seen.url_hash` (SHA-256 of canonicalized URL) → send the 24h window to Anthropic `/v1/messages` for ranking + summarization → render MarkdownV2 grouped by source → split into chunks under `telegram.MaxMessageBytes` (4096) → post each chunk → record per chunk.
 
@@ -55,6 +56,7 @@ Both flows share `internal/store` (SQLite via `modernc.org/sqlite`, no CGO), `in
 - `internal/releasewatch` — shared release watcher runner: source candidates, seen checks, dry-run output, Telegram send, and post logging.
 - `internal/claudecode` — Claude Code release source/client: `npm.go`, `github.go`, `changelog.go`, `format.go`, `source.go`, `watcher.go`.
 - `internal/gorelease` — official Go stable release source/client from go.dev downloads + release history.
+- `internal/applerelease` — Apple Developer releases RSS source for stable iOS/macOS: feed client + title/notes-link parser (`client.go`), MarkdownV2 formatter (`format.go`), per-platform `Source` + `Seeder` (`source.go`). No LLM.
 - `internal/drupalsec` — drupal.org security advisory source: feed client (`gofeed`), HTML field parser (`client.go`), MarkdownV2 formatter (`format.go`), `Source` + `Seeder` (`source.go`). No LLM.
 - `internal/digest` — phase 2 orchestrator + `render.go` (MarkdownV2 layout + chunk splitter).
 - `internal/news` — feed fetch (`gofeed`) + canonical URL hashing.
