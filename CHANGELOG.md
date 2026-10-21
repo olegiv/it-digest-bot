@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning 2.0.0](https://semver.org/spec/
 
 ### Security
 
+- Go updated to `1.27.3` and `golang.org/x/net` to `v0.60.0`, fixing
+  standard-library and HTTP/2 vulnerabilities reachable from the HTTP
+  client (govulncheck: GO-2026-6809 compromised x509 intermediates,
+  GO-2026-6605 HTTP/1 client desync, GO-2026-6610 malformed HTTP/2
+  framing headers, GO-2026-6608 MIME header memory limit bypass, and
+  others). Build environments now require Go 1.27.3.
 - The shared HTTP client (`httpx.New`) refuses redirects from `https` to
   plain `http`, for every caller (release sources, feeds, Telegram,
   Anthropic). Previously Go's default policy followed them, which would

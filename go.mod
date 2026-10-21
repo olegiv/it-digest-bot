@@ -1,12 +1,12 @@
 module github.com/olegiv/it-digest-bot
 
-go 1.27.1
+go 1.27.3
 
 require (
 	github.com/BurntSushi/toml v1.6.0
 	github.com/mmcdole/gofeed v1.5.0
 	github.com/spf13/cobra v1.10.2
-	golang.org/x/net v0.59.0
+	golang.org/x/net v0.60.0
 	golang.org/x/sync v0.23.0
 	modernc.org/sqlite v1.60.1
 )
