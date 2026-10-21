@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning 2.0.0](https://semver.org/spec/
 
 ## [Unreleased]
 
+## [0.4.1] — 2026-10-21
+
 ### Fixed
 
 - Drupal security feed HTTP 404 responses are retried after 10 and 30
@@ -365,7 +367,8 @@ Initial public release.
 - Full local security audit, all actionable findings (1 HIGH, 4 MEDIUM, 4 LOW)
   closed in source before the initial release.
 
-[Unreleased]: https://github.com/olegiv/it-digest-bot/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/olegiv/it-digest-bot/compare/v0.4.1...HEAD
+[0.4.1]: https://github.com/olegiv/it-digest-bot/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/olegiv/it-digest-bot/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/olegiv/it-digest-bot/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/olegiv/it-digest-bot/compare/v0.1.0...v0.2.0
