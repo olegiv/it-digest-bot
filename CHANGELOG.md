@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning 2.0.0](https://semver.org/spec/
 
 ## [Unreleased]
 
+### Security
+
+- `golang.org/x/net` updated to `v0.62.0` (with `golang.org/x/sync`
+  `v0.24.0`, `golang.org/x/sys` `v0.49.0` and `golang.org/x/text`
+  `v0.43.0`), fixing two `x/net/html` vulnerabilities reachable from the
+  release sources (govulncheck: GO-2026-6866 raw-text namespace check
+  when rendering, reached via `gofeed` from the Drupal security feed
+  parser; GO-2026-6860 quadratic text-node coalescing, reached from the
+  Go release-notes summary). No Go toolchain change.
+
 ## [0.4.1] — 2026-10-21
 
 ### Fixed
