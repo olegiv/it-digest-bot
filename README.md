@@ -66,7 +66,7 @@ Each run exits on completion. journald stores the logs. Re-runs are idempotent b
 
 ## Quick start (local dev)
 
-Requires Go 1.27.3 or newer (the version in `go.mod`; earlier 1.27.x releases have known vulnerabilities in the standard library).
+Requires Go 1.27.4 or newer (the version in `go.mod`; earlier 1.27.x releases have known vulnerabilities in the standard library).
 
 ```bash
 # 1. build
