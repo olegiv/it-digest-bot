@@ -41,12 +41,19 @@ const (
 	SupportedVersionsURL = SiteURL + "/supported-versions.php"
 
 	maxBody = 1 << 20
+
+	// MaxEntries bounds the branches ParseActive accepts. php.net lists
+	// about five; a response with more is treated as broken rather than
+	// turned into a burst of announcements.
+	MaxEntries = 32
 )
 
-// versionRe accepts plain stable versions only ("8.5.13"). Pre-releases
-// never appear in the active-branches list, and anything else would flow
-// into URLs and posts, so it is skipped with a warning instead.
-var versionRe = regexp.MustCompile(`^(\d{1,3})\.(\d{1,3})\.(\d{1,4})$`)
+// versionRe accepts plain stable versions only ("8.5.13"), in canonical form:
+// no leading zeros, so "08.5.1" can never become a second releases_seen key
+// for "8.5.1". Pre-releases never appear in the active-branches list, and
+// anything else would flow into URLs and posts, so it is skipped with a
+// warning instead.
+var versionRe = regexp.MustCompile(`^(0|[1-9]\d{0,2})\.(0|[1-9]\d{0,2})\.(0|[1-9]\d{0,3})$`)
 
 // Release is the latest release of one active PHP branch.
 type Release struct {
@@ -179,6 +186,14 @@ func ParseActive(body []byte) ([]Release, []string, error) {
 		if err := json.Unmarshal(trimmed, &majors); err != nil {
 			return nil, nil, fmt.Errorf("decode php releases response: %w", err)
 		}
+	}
+
+	entries := 0
+	for _, branches := range majors {
+		entries += len(branches)
+	}
+	if entries > MaxEntries {
+		return nil, nil, fmt.Errorf("php releases: %d branches listed, more than the %d accepted", entries, MaxEntries)
 	}
 
 	var (

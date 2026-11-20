@@ -121,13 +121,14 @@ func vulnerabilityLines(vulns []Vulnerability) []string {
 
 // Excerpt returns the first prose paragraph of a GitHub advisory
 // description: markdown headings ("### Summary"), fenced code and empty lines
-// are skipped, inline emphasis and code markers are dropped, and whitespace
-// is collapsed. The result is plain text that still needs escaping.
+// are skipped, inline emphasis and code markers are dropped, control and
+// Unicode format characters are removed (see cleanText) and whitespace is
+// collapsed. The result is plain text that still needs escaping.
 func Excerpt(desc string) string {
 	var para []string
 	inFence := false
 	for line := range strings.SplitSeq(strings.ReplaceAll(desc, "\r\n", "\n"), "\n") {
-		trimmed := strings.TrimSpace(line)
+		trimmed := cleanText(line)
 		if strings.HasPrefix(trimmed, "```") || strings.HasPrefix(trimmed, "~~~") {
 			inFence = !inFence
 			if len(para) > 0 {
@@ -146,8 +147,7 @@ func Excerpt(desc string) string {
 		}
 		para = append(para, trimmed)
 	}
-	text := strings.Join(strings.Fields(strings.Join(para, " ")), " ")
-	return strings.NewReplacer("**", "", "__", "", "`", "").Replace(text)
+	return strings.NewReplacer("**", "", "__", "", "`", "").Replace(strings.Join(para, " "))
 }
 
 // FormatSeedNotice renders the one-off post made when the source records the

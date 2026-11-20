@@ -2,11 +2,14 @@ package phpsec
 
 import (
 	"context"
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 	"time"
+	"unicode"
 
 	"github.com/olegiv/it-digest-bot/internal/httpx"
 )
@@ -308,5 +311,89 @@ func TestClientFetchErrors(t *testing.T) {
 	}
 	if _, _, err := NewClient(testHTTP(), "").SetAPIURL("http://[::1]:namedport").Fetch(context.Background()); err == nil {
 		t.Error("invalid URL: want error")
+	}
+}
+
+// TestParseAdvisoriesStripsControlAndBidi: control characters must never
+// reach a post or the dry-run terminal output, and bidi/zero-width format
+// characters must not reorder or hide text.
+func TestParseAdvisoriesStripsControlAndBidi(t *testing.T) {
+	t.Parallel()
+	body := `[{"ghsa_id":"GHSA-aaaa-bbbb-cccc","state":"published",` +
+		`"summary":"Heap\u001b[31m overflow\u0000 in\u0007 x\u202e()\u200b\nnext\u2028line",` +
+		`"description":"### Summary\n\nBad\u001b]8;;https://evil.example\u0007 text\u202dhere\ufeff.\u0085\n",` +
+		`"vulnerabilities":[{"package":{"name":"php\u202e-src\u0000"},"vulnerable_version_range":"< 8.5\u000b.1","patched_versions":"8.5.1\u2066"}]}]`
+	advs, _, err := ParseAdvisories([]byte(body))
+	if err != nil {
+		t.Fatalf("ParseAdvisories: %v", err)
+	}
+	a := advs[0]
+	if a.Summary != "Heap [31m overflow in x() next line" {
+		t.Errorf("summary = %q", a.Summary)
+	}
+	v := a.Vulnerabilities[0]
+	if v.Package != "php-src" || v.Vulnerable != "< 8.5 .1" || v.Patched != "8.5.1" {
+		t.Errorf("vulnerability = %+v", v)
+	}
+	if got := Excerpt(a.Description); got != "Bad ]8;;https://evil.example texthere." {
+		t.Errorf("excerpt = %q", got)
+	}
+
+	post := FormatAdvisory(&a)
+	for _, r := range post {
+		if (r < 0x20 && r != '\n') || (r >= 0x7f && r <= 0x9f) || unicode.Is(unicode.Cf, r) {
+			t.Fatalf("post contains control/format rune %U:\n%q", r, post)
+		}
+	}
+}
+
+func TestCleanText(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct{ in, want string }{
+		{"  plain   text ", "plain text"},
+		{"a\tb\r\nc\x00d", "a b c d"},
+		{"e\u0301", "e\u0301"}, // combining marks (Mn) are kept
+		{"\u200d\u2060\u00ad", ""},
+		{"日本語", "日本語"},
+	} {
+		if got := cleanText(tc.in); got != tc.want {
+			t.Errorf("cleanText(%q) = %q, want %q", tc.in, got, tc.want)
+		}
+	}
+}
+
+// TestClientDropsTokenOnCrossHostRedirect: if api.github.com (or something
+// impersonating it on the path) redirects elsewhere, the token must not
+// follow. net/http strips Authorization on a redirect to a host that is not
+// the original host or its subdomain; this pins that the client relies on it
+// and adds the header on the first request only.
+func TestClientDropsTokenOnCrossHostRedirect(t *testing.T) {
+	t.Parallel()
+	for _, target := range []string{
+		"https://evil.example/collect",
+		"https://api.github.com.evil.example/repos/x",
+		"https://github.com/php/php-src",
+	} {
+		auth := map[string]string{}
+		rt := roundTripFunc(func(r *http.Request) (*http.Response, error) {
+			auth[r.URL.Host] = r.Header.Get("Authorization")
+			if r.URL.Host == githubAPIHost {
+				h := http.Header{}
+				h.Set("Location", target)
+				return &http.Response{StatusCode: http.StatusFound, Body: http.NoBody, Header: h, Request: r}, nil
+			}
+			return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader("[]")), Header: http.Header{}, Request: r}, nil
+		})
+		h := httpx.New(httpx.WithHTTPClient(&http.Client{Transport: rt}), httpx.WithMaxRetries(0))
+		if _, _, err := NewClient(h, "secret-token").Fetch(context.Background()); err != nil {
+			t.Fatalf("%s: Fetch: %v", target, err)
+		}
+		if auth[githubAPIHost] != "Bearer secret-token" {
+			t.Errorf("%s: first hop Authorization = %q", target, auth[githubAPIHost])
+		}
+		u, _ := url.Parse(target)
+		if got, ok := auth[u.Host]; !ok || got != "" {
+			t.Errorf("redirect to %s: Authorization = %q (requested %v), want it dropped", target, got, ok)
+		}
 	}
 }

@@ -2,6 +2,7 @@ package phprelease
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -221,5 +222,59 @@ func TestClientFetchErrors(t *testing.T) {
 	}
 	if _, _, err := NewClient(testHTTP()).SetActiveURL("http://[::1]:namedport").Fetch(context.Background()); err == nil {
 		t.Error("invalid URL: want error")
+	}
+}
+
+// TestParseActiveRejectsNonCanonicalVersions: leading zeros would create a
+// second releases_seen key for the same release ("08.5.1" vs "8.5.1").
+func TestParseActiveRejectsNonCanonicalVersions(t *testing.T) {
+	t.Parallel()
+	for _, v := range []string{"08.5.1", "8.05.1", "8.5.01", "8.5.00", "8.5.1.0", "8.5", "+8.5.1", "8.5.1 ", "８.5.1"} {
+		body := `{"8":{"8.4":{"version":"8.4.1"},"8.5":{"version":"` + v + `"}}}`
+		if strings.HasPrefix(v, "08") {
+			body = `{"8":{"8.4":{"version":"8.4.1"}},"08":{"08.5":{"version":"` + v + `"}}}`
+		}
+		rels, warnings, err := ParseActive([]byte(body))
+		if err != nil {
+			t.Fatalf("%q: %v", v, err)
+		}
+		if strings.TrimSpace(v) == "8.5.1" {
+			continue // surrounding whitespace is trimmed, not rejected
+		}
+		if len(rels) != 1 || rels[0].Version != "8.4.1" || len(warnings) != 1 {
+			t.Errorf("%q: releases %+v warnings %v, want it skipped", v, rels, warnings)
+		}
+	}
+	for _, tc := range []struct{ major, branch, version string }{
+		{"8", "8.5", "8.5.0"},
+		{"10", "10.0", "10.0.0"},
+		{"8", "8.10", "8.10.100"},
+	} {
+		body := `{"` + tc.major + `":{"` + tc.branch + `":{"version":"` + tc.version + `"}}}`
+		if rels, _, err := ParseActive([]byte(body)); err != nil || len(rels) != 1 {
+			t.Errorf("%q must be accepted: %+v, %v", tc.version, rels, err)
+		}
+	}
+}
+
+func TestParseActiveRejectsTooManyEntries(t *testing.T) {
+	t.Parallel()
+	var sb strings.Builder
+	sb.WriteString(`{"8":{`)
+	for i := range MaxEntries + 1 {
+		if i > 0 {
+			sb.WriteString(",")
+		}
+		fmt.Fprintf(&sb, `"8.%d":{"version":"8.%d.1"}`, i, i)
+	}
+	sb.WriteString(`}}`)
+	if _, _, err := ParseActive([]byte(sb.String())); err == nil || !strings.Contains(err.Error(), "more than the 32 accepted") {
+		t.Errorf("err = %v, want entry-cap error", err)
+	}
+
+	// Exactly MaxEntries is still fine.
+	at := strings.Replace(sb.String(), fmt.Sprintf(`,"8.%d":{"version":"8.%d.1"}`, MaxEntries, MaxEntries), "", 1)
+	if rels, _, err := ParseActive([]byte(at)); err != nil || len(rels) != MaxEntries {
+		t.Errorf("at cap: %d releases, %v", len(rels), err)
 	}
 }

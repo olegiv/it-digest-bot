@@ -21,6 +21,18 @@ const (
 	DefaultMaxRetries = 3
 	DefaultBaseDelay  = 500 * time.Millisecond
 
+	// MaxRetryAfter is the longest upstream Retry-After that Do waits for.
+	// Every command is a one-shot run under a systemd timer: an upstream
+	// asking for a longer pause is treated as unavailable, and Do returns
+	// the last error at once instead of sleeping. Without the cap a hostile
+	// or broken server could stall a run for hours and make the next
+	// scheduled run be skipped.
+	MaxRetryAfter = 60 * time.Second
+
+	// maxRetryAfterSeconds bounds the parsed header before it is converted
+	// to a Duration, so a huge value cannot overflow into a negative delay.
+	maxRetryAfterSeconds = 7 * 24 * 60 * 60
+
 	// maxRedirects matches net/http's default policy, which a custom
 	// CheckRedirect replaces.
 	maxRedirects = 10
@@ -154,7 +166,8 @@ func New(opts ...Option) *Client {
 // the response body on success.
 //
 // Transient conditions: network errors, 429, 5xx. A Retry-After header (if
-// present and parseable) overrides the jittered exponential backoff. On a
+// present and parseable) overrides the jittered exponential backoff; one
+// longer than MaxRetryAfter ends the retries with the last error. On a
 // retry, the request body is refreshed via req.GetBody (which net/http sets
 // automatically for bytes.Buffer / bytes.Reader / strings.Reader bodies).
 // If the request has no GetBody — e.g. a streaming body the caller built
@@ -167,6 +180,7 @@ func (c *Client) Do(ctx context.Context, req *http.Request) (*http.Response, err
 	req = req.WithContext(ctx)
 
 	var lastErr error
+	attempts := 0
 	for attempt := 0; attempt <= c.maxRetries; attempt++ {
 		if attempt > 0 {
 			if req.Body != nil {
@@ -184,6 +198,10 @@ func (c *Client) Do(ctx context.Context, req *http.Request) (*http.Response, err
 			}
 			delay := backoff(attempt, c.baseDelay)
 			if ra := retryAfter(lastResp(lastErr)); ra > 0 {
+				if ra > MaxRetryAfter {
+					lastErr = fmt.Errorf("%w (Retry-After %s exceeds the %s limit)", lastErr, ra, MaxRetryAfter)
+					break
+				}
 				delay = ra
 			}
 			if err := c.sleep(ctx, delay); err != nil {
@@ -191,6 +209,7 @@ func (c *Client) Do(ctx context.Context, req *http.Request) (*http.Response, err
 			}
 		}
 
+		attempts++
 		resp, err := c.http.Do(req)
 		if err != nil {
 			// A refused downgrade is policy, not a transient fault: don't
@@ -219,7 +238,7 @@ func (c *Client) Do(ctx context.Context, req *http.Request) (*http.Response, err
 		lastErr = &statusError{status: resp.StatusCode, header: resp.Header}
 	}
 	return nil, fmt.Errorf("%s %s: giving up after %d attempts: %w",
-		req.Method, c.urlSanitizer(req.URL), c.maxRetries+1, lastErr)
+		req.Method, c.urlSanitizer(req.URL), attempts, lastErr)
 }
 
 // sanitizeError rewrites the URL inside net/http's *url.Error with the
@@ -271,7 +290,7 @@ func retryAfter(h http.Header) time.Duration {
 		return 0
 	}
 	if secs, err := strconv.Atoi(v); err == nil && secs > 0 {
-		return time.Duration(secs) * time.Second
+		return time.Duration(min(secs, maxRetryAfterSeconds)) * time.Second
 	}
 	if t, err := http.ParseTime(v); err == nil {
 		if d := time.Until(t); d > 0 {

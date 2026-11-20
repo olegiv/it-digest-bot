@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -336,5 +337,84 @@ func TestDoSanitizesNetworkErrors(t *testing.T) {
 	}
 	if strings.Contains(err.Error(), "SECRET") {
 		t.Errorf("context error leaks the URL: %v", err)
+	}
+}
+
+// TestRetryAfterHonouredWithinLimit: a Retry-After at the limit replaces
+// the backoff and the request is retried.
+func TestRetryAfterHonouredWithinLimit(t *testing.T) {
+	t.Parallel()
+	var calls atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		if calls.Add(1) == 1 {
+			w.Header().Set("Retry-After", strconv.Itoa(int(MaxRetryAfter/time.Second)))
+			w.WriteHeader(http.StatusTooManyRequests)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	t.Cleanup(srv.Close)
+
+	var slept []time.Duration
+	c := New(WithSleep(func(_ context.Context, d time.Duration) error {
+		slept = append(slept, d)
+		return nil
+	}))
+	req, _ := http.NewRequest(http.MethodGet, srv.URL, nil)
+	resp, err := c.Do(context.Background(), req)
+	if err != nil {
+		t.Fatalf("Do: %v", err)
+	}
+	_ = resp.Body.Close()
+	if len(slept) != 1 || slept[0] != MaxRetryAfter {
+		t.Errorf("slept %v, want [%v]", slept, MaxRetryAfter)
+	}
+}
+
+// TestRetryAfterBeyondLimitStopsRetrying: an upstream asking for a pause
+// longer than MaxRetryAfter must not stall the one-shot run; Do gives up at
+// once without sleeping.
+func TestRetryAfterBeyondLimitStopsRetrying(t *testing.T) {
+	t.Parallel()
+	for _, header := range []string{
+		"3600",
+		"999999999999",
+		time.Now().Add(2 * time.Hour).UTC().Format(http.TimeFormat),
+	} {
+		var calls atomic.Int32
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			calls.Add(1)
+			w.Header().Set("Retry-After", header)
+			w.WriteHeader(http.StatusServiceUnavailable)
+		}))
+
+		slept := 0
+		c := New(WithSleep(func(context.Context, time.Duration) error {
+			slept++
+			return nil
+		}))
+		req, _ := http.NewRequest(http.MethodGet, srv.URL, nil)
+		_, err := c.Do(context.Background(), req)
+		srv.Close()
+		if err == nil {
+			t.Fatalf("Retry-After %q: want error", header)
+		}
+		if calls.Load() != 1 || slept != 0 {
+			t.Errorf("Retry-After %q: %d calls, %d sleeps; want 1 call, no sleep", header, calls.Load(), slept)
+		}
+		for _, want := range []string{"giving up after 1 attempts", "http 503", "exceeds the 1m0s limit"} {
+			if !strings.Contains(err.Error(), want) {
+				t.Errorf("Retry-After %q: error %q missing %q", header, err, want)
+			}
+		}
+	}
+}
+
+func TestRetryAfterHugeValueDoesNotOverflow(t *testing.T) {
+	t.Parallel()
+	h := http.Header{}
+	h.Set("Retry-After", "9223372036854775807")
+	if got := retryAfter(h); got <= MaxRetryAfter {
+		t.Errorf("retryAfter = %v, want a positive value above the limit", got)
 	}
 }

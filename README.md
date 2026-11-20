@@ -210,6 +210,12 @@ continue, and the watcher exits nonzero, triggering the existing systemd failure
 alert. Network errors, HTTP 429 and HTTP 5xx retain the shared HTTP retry policy;
 the additional 404 retries apply only to the Drupal security feed.
 
+The shared HTTP retry policy honours an upstream `Retry-After` of up to 60
+seconds. A longer one ends the retries for that request at once, so a slow or
+hostile upstream cannot stall the run. As a backstop, `it-digest-watch.service`
+sets `TimeoutStartSec=10min`: a run that still hangs is stopped and marked
+failed, which sends the usual failure alert.
+
 Stable iOS and macOS releases are always tracked too. `digest watch` reads the Apple Developer releases feed and keeps only titles of the exact form `iOS 27.0.1 (24A446)` / `macOS Tahoe 26.1 (25B78)`; betas, RCs, iPadOS/watchOS/tvOS/visionOS and Xcode are ignored. Each new version (deduplicated per platform under `releases_seen` package `ios` / `macos`) is posted with its build number, release-notes link and Apple's security-content index. Updates to an older major branch (e.g. iOS 18.7.10 while iOS 27 is current) are posted too, marked as an older-branch update. As with Drupal, each platform's first run records the feed's current releases as the baseline and posts a single "now tracked" notice.
 
 PHP is tracked by two always-on sources that run in the same hourly `digest watch` pass as Go:

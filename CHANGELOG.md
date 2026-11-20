@@ -31,6 +31,22 @@ and this project adheres to [Semantic Versioning 2.0.0](https://semver.org/spec/
 
 ### Security
 
+- Shared HTTP client: a `Retry-After` longer than 60 seconds now ends the
+  retries at once with the last error instead of being slept on. A hostile
+  or broken upstream could previously stall `digest watch` for hours, so
+  the next hourly run was skipped without any failure alert.
+- `it-digest-watch.service` sets `TimeoutStartSec=10min`. A run that hangs
+  anyway is stopped and marked failed, which fires the existing Telegram
+  failure alert. Re-run `deploy/install.sh` to install the updated unit.
+- PHP security advisories: control characters (ESC, NUL, BEL, …) and
+  Unicode format characters (bidi overrides, zero-width characters) are
+  removed from advisory text before rendering. They could otherwise reach
+  terminals through `--dry-run` output, make Telegram reject the post on
+  every run, or visually reorder text.
+- PHP releases: versions with leading zeros are rejected, so `08.5.1`
+  cannot become a second record of `8.5.1`, and a response listing more
+  than 32 branches is treated as broken instead of producing a burst of
+  posts.
 - `golang.org/x/net` updated to `v0.62.0` (with `golang.org/x/sync`
   `v0.24.0`, `golang.org/x/sys` `v0.49.0` and `golang.org/x/text`
   `v0.43.0`), fixing two `x/net/html` vulnerabilities reachable from the
