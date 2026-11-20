@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -111,8 +112,10 @@ func TestSanitizeURLNilSafe(t *testing.T) {
 
 func TestSendMessageErrorRedactsTokenInPath(t *testing.T) {
 	t.Parallel()
+	// 429 is retried until the budget runs out, so the error is the
+	// retry-exhausted one that carries the request URL.
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		http.Error(w, "boom", http.StatusInternalServerError)
+		http.Error(w, "boom", http.StatusTooManyRequests)
 	}))
 	defer srv.Close()
 
@@ -138,5 +141,36 @@ func TestSendMessageErrorRedactsTokenInPath(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "/bot-REDACTED/") {
 		t.Errorf("expected masked /bot-REDACTED/ segment in error, got %v", err)
+	}
+}
+
+// TestSendMessageDoesNotRetryAmbiguousFailures: after a 5xx Telegram may
+// already have posted the message, so SendMessage must not send it again.
+// 429 rejects the request without posting it and is retried.
+func TestSendMessageDoesNotRetryAmbiguousFailures(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		status    int
+		wantCalls int32
+	}{
+		{http.StatusInternalServerError, 1},
+		{http.StatusBadGateway, 1},
+		{http.StatusTooManyRequests, 3},
+	} {
+		var calls atomic.Int32
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			calls.Add(1)
+			w.WriteHeader(tc.status)
+		}))
+		bot := New("t", WithBaseURL(srv.URL),
+			WithHTTPClient(httpx.New(httpx.WithSleep(nopSleep), httpx.WithMaxRetries(2))))
+		_, err := bot.SendMessage(context.Background(), "@c", "hi", ParseModeNone)
+		srv.Close()
+		if err == nil {
+			t.Fatalf("status %d: want error", tc.status)
+		}
+		if got := calls.Load(); got != tc.wantCalls {
+			t.Errorf("status %d: %d attempts, want %d", tc.status, got, tc.wantCalls)
+		}
 	}
 }

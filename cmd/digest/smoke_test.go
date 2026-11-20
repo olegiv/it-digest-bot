@@ -8,6 +8,7 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+	"time"
 )
 
 // TestSmokePostDryRun builds the binary and runs `digest post --dry-run`
@@ -91,5 +92,22 @@ func findRepoRoot(t *testing.T) string {
 			t.Fatal("go.mod not found above " + filepath.Dir(self))
 		}
 		dir = parent
+	}
+}
+
+func TestFailureAlertHidesHostnameInPublicChannel(t *testing.T) {
+	when := time.Date(2026, 11, 20, 8, 0, 0, 0, time.UTC)
+	private := failureAlert("it-digest-watch", when, false)
+	public := failureAlert("it-digest-watch", when, true)
+	if !strings.Contains(private, "*Host:*") {
+		t.Errorf("admin alert must name the host:\n%s", private)
+	}
+	if strings.Contains(public, "*Host:*") {
+		t.Errorf("public alert must not name the host:\n%s", public)
+	}
+	for _, msg := range []string{private, public} {
+		if !strings.Contains(msg, "*Unit:* `it-digest-watch`") || !strings.Contains(msg, "`journalctl \\-u it-digest-watch`") {
+			t.Errorf("alert missing unit details:\n%s", msg)
+		}
 	}
 }

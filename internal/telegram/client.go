@@ -70,6 +70,12 @@ func New(token string, opts ...Option) *Bot {
 		o(b)
 	}
 	b.http.SetURLSanitizer(SanitizeURL)
+	// sendMessage is not idempotent: after a 5xx or a dropped connection
+	// Telegram may already have posted the message, and a retry would post
+	// it twice. Retry only what certainly was not delivered (429, failed
+	// connection setup); callers keep unsent items unrecorded and retry
+	// them on their next scheduled run.
+	b.http.SetRetryPolicy(httpx.NotSentRetryable)
 	return b
 }
 
@@ -141,8 +147,8 @@ func (b *Bot) SendMessage(ctx context.Context, chat, text string, mode ParseMode
 
 	var tgResp apiResponse[messageResult]
 	if err := json.Unmarshal(buf, &tgResp); err != nil {
-		return 0, fmt.Errorf("decode telegram response: %w (body: %s)",
-			err, snippet(buf))
+		return 0, fmt.Errorf("decode telegram response (http %d): %w (body: %s)",
+			resp.StatusCode, err, snippet(buf))
 	}
 	if !tgResp.OK {
 		return 0, fmt.Errorf("telegram error: code=%d %s",

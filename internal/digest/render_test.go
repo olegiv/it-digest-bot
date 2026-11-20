@@ -425,3 +425,30 @@ func TestTruncateText(t *testing.T) {
 		t.Errorf("rune boundary: %q", got)
 	}
 }
+
+func TestSameHostPolicyPorts(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		article, link string
+		want          bool
+	}{
+		{"https://good.com/a", "https://good.com/b", true},
+		{"https://good.com/a", "https://good.com:443/b", true},
+		{"https://good.com/a", "http://good.com:80/b", true},
+		{"https://good.com/a", "http://good.com/b", true},
+		{"https://good.com/a", "https://good.com:8443/phish", false},
+		{"https://good.com/a", "http://good.com:443/b", false},
+		{"https://good.com:8443/a", "https://good.com:8443/b", true},
+		{"https://good.com:8443/a", "https://good.com/b", false},
+		{"https://www.good.com/a", "https://good.com./b", true},
+		{"https://good.com/a", "https://evil.good.com/b", false},
+	} {
+		u, ok := articleURL(tc.article)
+		if !ok {
+			t.Fatalf("articleURL(%q) rejected", tc.article)
+		}
+		if got := sameHost(u)(tc.link); got != tc.want {
+			t.Errorf("sameHost(%s)(%s) = %v, want %v", tc.article, tc.link, got, tc.want)
+		}
+	}
+}

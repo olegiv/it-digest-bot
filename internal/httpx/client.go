@@ -8,9 +8,11 @@ import (
 	"fmt"
 	"io"
 	"math/rand/v2"
+	"net"
 	"net/http"
 	"net/url"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/olegiv/it-digest-bot/internal/version"
@@ -54,8 +56,9 @@ func (e *redirectError) Error() string { return ErrInsecureRedirect.Error() }
 func (e *redirectError) Unwrap() error { return ErrInsecureRedirect }
 
 // checkRedirect is the default client's redirect policy: net/http's limit of
-// maxRedirects, plus no https → http downgrade. http → http stays allowed so
-// plain-http loopback fixtures keep working.
+// maxRedirects, no https → http downgrade, and no API-key headers sent to
+// another host. http → http stays allowed so plain-http loopback fixtures
+// keep working.
 func checkRedirect(req *http.Request, via []*http.Request) error {
 	if len(via) >= maxRedirects {
 		return fmt.Errorf("stopped after %d redirects", maxRedirects)
@@ -63,8 +66,20 @@ func checkRedirect(req *http.Request, via []*http.Request) error {
 	if len(via) > 0 && via[len(via)-1].URL.Scheme == "https" && req.URL.Scheme != "https" {
 		return &redirectError{target: req.URL}
 	}
+	// net/http drops Authorization and Cookie on a redirect to another
+	// domain but forwards every other header. Drop API-key headers too
+	// (the Anthropic client sends x-api-key) unless the host is unchanged.
+	if len(via) > 0 && !strings.EqualFold(req.URL.Host, via[0].URL.Host) {
+		for _, h := range apiKeyHeaders {
+			req.Header.Del(h)
+		}
+	}
 	return nil
 }
+
+// apiKeyHeaders are credential headers that must not follow a redirect to
+// another host.
+var apiKeyHeaders = []string{"X-Api-Key", "Api-Key", "X-Goog-Api-Key"}
 
 // Client wraps *http.Client with retry/backoff and default headers.
 type Client struct {
@@ -74,6 +89,46 @@ type Client struct {
 	baseDelay    time.Duration
 	sleep        func(context.Context, time.Duration) error
 	urlSanitizer func(*url.URL) string
+	retryable    RetryPolicy
+}
+
+// RetryPolicy decides whether Do may retry after one attempt: status is the
+// response status, or 0 when err is the transport error of a request that
+// got no response. A nil policy means DefaultRetryable.
+type RetryPolicy func(status int, err error) bool
+
+// DefaultRetryable retries network errors, 429 and 5xx. That suits reads
+// and idempotent requests; a request with a side effect that must not be
+// repeated (posting a message) needs a narrower policy, because a 5xx or a
+// dropped connection does not prove the server did not act on it.
+func DefaultRetryable(status int, err error) bool {
+	if err != nil {
+		return true
+	}
+	return isRetryableStatus(status)
+}
+
+// NotSentRetryable retries only what certainly did not reach the server
+// (see NotSent) and HTTP 429, which rejects the request without acting on
+// it. Any other failure is returned at once, so a non-idempotent request
+// is never repeated after the server may already have processed it.
+func NotSentRetryable(status int, err error) bool {
+	if err != nil {
+		return NotSent(err)
+	}
+	return status == http.StatusTooManyRequests
+}
+
+// NotSent reports whether err shows the request never reached the server:
+// DNS resolution or connection setup failed.
+func NotSent(err error) bool {
+	if _, ok := errors.AsType[*net.DNSError](err); ok {
+		return true
+	}
+	if oe, ok := errors.AsType[*net.OpError](err); ok {
+		return oe.Op == "dial"
+	}
+	return false
 }
 
 // Option configures the client at construction time.
@@ -126,6 +181,23 @@ func WithURLSanitizer(fn func(*url.URL) string) Option {
 			cl.urlSanitizer = fn
 		}
 	}
+}
+
+// WithRetryPolicy replaces DefaultRetryable for this client.
+func WithRetryPolicy(fn RetryPolicy) Option {
+	return func(cl *Client) { cl.retryable = fn }
+}
+
+// SetRetryPolicy installs a retry policy on an existing Client. Like
+// SetURLSanitizer it lets a subclient owner (telegram.Bot) enforce its
+// invariant on an injected client. nil restores DefaultRetryable.
+func (c *Client) SetRetryPolicy(fn RetryPolicy) { c.retryable = fn }
+
+func (c *Client) shouldRetry(status int, err error) bool {
+	if c.retryable == nil {
+		return DefaultRetryable(status, err)
+	}
+	return c.retryable(status, err)
 }
 
 // SetURLSanitizer installs (or replaces) the sanitizer on an existing
@@ -223,13 +295,16 @@ func (c *Client) Do(ctx context.Context, req *http.Request) (*http.Response, err
 			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 				return nil, err
 			}
+			if !c.shouldRetry(0, err) {
+				break
+			}
 			continue
 		}
 		if resp == nil {
 			lastErr = errors.New("nil http response")
 			continue
 		}
-		if !isRetryableStatus(resp.StatusCode) {
+		if !c.shouldRetry(resp.StatusCode, nil) {
 			return resp, nil
 		}
 		// retryable status — drain + close and loop.

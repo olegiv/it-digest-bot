@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -416,5 +417,128 @@ func TestRetryAfterHugeValueDoesNotOverflow(t *testing.T) {
 	h.Set("Retry-After", "9223372036854775807")
 	if got := retryAfter(h); got <= MaxRetryAfter {
 		t.Errorf("retryAfter = %v, want a positive value above the limit", got)
+	}
+}
+
+func TestRetryPolicies(t *testing.T) {
+	t.Parallel()
+	dial := &url.Error{Op: "Post", URL: "https://x", Err: &net.OpError{Op: "dial", Err: errors.New("connection refused")}}
+	dns := &url.Error{Op: "Post", URL: "https://x", Err: &net.DNSError{Err: "no such host", Name: "x"}}
+	reset := &url.Error{Op: "Post", URL: "https://x", Err: &net.OpError{Op: "read", Err: errors.New("connection reset")}}
+	eof := &url.Error{Op: "Post", URL: "https://x", Err: io.ErrUnexpectedEOF}
+	for _, tc := range []struct {
+		name         string
+		status       int
+		err          error
+		def, notSent bool
+	}{
+		{"dial", 0, dial, true, true},
+		{"dns", 0, dns, true, true},
+		{"reset after write", 0, reset, true, false},
+		{"eof", 0, eof, true, false},
+		{"429", 429, nil, true, true},
+		{"500", 500, nil, true, false},
+		{"503", 503, nil, true, false},
+		{"404", 404, nil, false, false},
+	} {
+		if got := DefaultRetryable(tc.status, tc.err); got != tc.def {
+			t.Errorf("DefaultRetryable(%s) = %v, want %v", tc.name, got, tc.def)
+		}
+		if got := NotSentRetryable(tc.status, tc.err); got != tc.notSent {
+			t.Errorf("NotSentRetryable(%s) = %v, want %v", tc.name, got, tc.notSent)
+		}
+	}
+}
+
+func TestRetryPolicyStopsOnNonRetryableStatus(t *testing.T) {
+	t.Parallel()
+	var calls atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		calls.Add(1)
+		w.WriteHeader(http.StatusBadGateway)
+	}))
+	t.Cleanup(srv.Close)
+	c := New(WithSleep(nopSleep), WithRetryPolicy(NotSentRetryable))
+	req, _ := http.NewRequest(http.MethodPost, srv.URL, strings.NewReader("x"))
+	resp, err := c.Do(context.Background(), req)
+	if err != nil {
+		t.Fatalf("Do: %v", err)
+	}
+	_ = resp.Body.Close()
+	if resp.StatusCode != http.StatusBadGateway || calls.Load() != 1 {
+		t.Errorf("status %d after %d calls, want the 502 returned after 1 call", resp.StatusCode, calls.Load())
+	}
+
+	c.SetRetryPolicy(nil) // back to DefaultRetryable
+	calls.Store(0)
+	req, _ = http.NewRequest(http.MethodPost, srv.URL, strings.NewReader("x"))
+	if _, err := c.Do(context.Background(), req); err == nil || calls.Load() != DefaultMaxRetries+1 {
+		t.Errorf("default policy: %d calls, err %v; want %d calls and an error", calls.Load(), err, DefaultMaxRetries+1)
+	}
+}
+
+func TestRetryPolicyStopsOnNotRetryableError(t *testing.T) {
+	t.Parallel()
+	var calls atomic.Int32
+	c := New(WithSleep(nopSleep), WithRetryPolicy(func(int, error) bool { calls.Add(1); return false }),
+		WithHTTPClient(&http.Client{Transport: roundTripErr{}}))
+	req, _ := http.NewRequest(http.MethodGet, "https://example.invalid/", nil)
+	_, err := c.Do(context.Background(), req)
+	if err == nil || !strings.Contains(err.Error(), "giving up after 1 attempts") || calls.Load() != 1 {
+		t.Errorf("err %v after %d policy calls; want one attempt", err, calls.Load())
+	}
+}
+
+type roundTripErr struct{}
+
+func (roundTripErr) RoundTrip(*http.Request) (*http.Response, error) {
+	return nil, io.ErrUnexpectedEOF
+}
+
+// TestRedirectDropsAPIKeyHeaderAcrossHosts: net/http forwards every header
+// except Authorization and Cookie on a cross-host redirect, so the default
+// client drops API-key headers itself.
+func TestRedirectDropsAPIKeyHeaderAcrossHosts(t *testing.T) {
+	t.Parallel()
+	var gotKey atomic.Value
+	other := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotKey.Store(r.Header.Get("X-Api-Key") + "|" + r.Header.Get("X-Other"))
+	}))
+	t.Cleanup(other.Close)
+	first := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/same" {
+			gotKey.Store(r.Header.Get("X-Api-Key"))
+			return
+		}
+		target := other.URL
+		if r.URL.Query().Get("to") == "same" {
+			target = "/same"
+		}
+		http.Redirect(w, r, target, http.StatusFound)
+	}))
+	t.Cleanup(first.Close)
+
+	c := New(WithSleep(nopSleep))
+	req, _ := http.NewRequest(http.MethodGet, first.URL, nil)
+	req.Header.Set("X-Api-Key", "secret")
+	req.Header.Set("X-Other", "kept")
+	resp, err := c.Do(context.Background(), req)
+	if err != nil {
+		t.Fatalf("Do: %v", err)
+	}
+	_ = resp.Body.Close()
+	if got := gotKey.Load(); got != "|kept" {
+		t.Errorf("cross-host redirect forwarded %q, want the key dropped and other headers kept", got)
+	}
+
+	req, _ = http.NewRequest(http.MethodGet, first.URL+"?to=same", nil)
+	req.Header.Set("X-Api-Key", "secret")
+	resp, err = c.Do(context.Background(), req)
+	if err != nil {
+		t.Fatalf("Do same-host: %v", err)
+	}
+	_ = resp.Body.Close()
+	if got := gotKey.Load(); got != "secret" {
+		t.Errorf("same-host redirect: key = %q, want it kept", got)
 	}
 }

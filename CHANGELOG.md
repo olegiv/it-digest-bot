@@ -91,6 +91,22 @@ and this project adheres to [Semantic Versioning 2.0.0](https://semver.org/spec/
   every hourly run until the upstream text changed). Output is otherwise
   unchanged. A fuzz test checks that every escaper yields well-formed
   output.
+- Telegram `sendMessage` is no longer retried after a 5xx response or a
+  dropped connection, when Telegram may already have posted the message;
+  a retry posted it twice. Only HTTP 429 and failed connection setup (DNS,
+  dial) are retried. An unsent release stays unrecorded and is posted on
+  the next hourly run. New `httpx.RetryPolicy` (`WithRetryPolicy`,
+  `SetRetryPolicy`); `telegram.New` installs `httpx.NotSentRetryable`.
+- The shared HTTP client drops `X-Api-Key`-style headers on a redirect to
+  another host (net/http only drops `Authorization` and `Cookie`), so the
+  Anthropic API key cannot follow a redirect.
+- Daily digest: a link on the article's host but another port
+  (`good.com:8443`) is no longer kept live; default ports are ignored.
+- Failure alerts posted to the public channel (no `admin_chat`) no longer
+  include the server's hostname, and `digest config-check` warns when
+  `admin_chat` is unset.
+- `it-digest-backup.service` (`TimeoutStartSec=5min`) and
+  `it-digest-notify@.service` (`2min`) now have start timeouts too.
 - Sent messages are recorded even when the run is being stopped (SIGTERM
   from `systemctl stop`, a `TimeoutStartSec` expiry or a reboot). The writes
   after a successful send now use `store.AfterSend`, a context that is not

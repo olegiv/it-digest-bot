@@ -175,7 +175,7 @@ All non-secret settings live in `config.toml`. See [`config.example.toml`](./con
 | Section           | Key            | Required | Default                  | Notes |
 |-------------------|----------------|----------|--------------------------|-------|
 | `[telegram]`      | `channel`      | yes      | —                        | e.g. `@your_channel` |
-| `[telegram]`      | `admin_chat`   | no       | (falls back to `channel`) | Optional destination for OnFailure alerts |
+| `[telegram]`      | `admin_chat`   | no       | (falls back to `channel`) | Destination for OnFailure alerts. Set it to a private chat: alerts that fall back to the public channel omit the hostname, and `config-check` warns |
 | `[database]`      | `path`         | yes      | —                        | SQLite file path |
 | `[claudecode]`    | `npm_package`  | yes      | `@anthropic-ai/claude-code` | |
 | `[claudecode]`    | `github_repo`  | yes      | `anthropics/claude-code` | |

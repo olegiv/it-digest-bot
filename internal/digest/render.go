@@ -183,17 +183,32 @@ func articleURL(raw string) (*url.URL, bool) {
 // sameHost returns the digest's link policy for one entry: feed items and
 // the model's summaries of them are untrusted (a prompt injection in a feed
 // item could make the model emit any link), so a link in the blurb stays
-// live only when it is an http(s) URL on the article's own host. "www." is
-// ignored on both sides; other subdomains count as different hosts. With
+// live only when it is an http(s) URL on the article's own host and port.
+// "www." and default ports are ignored on both sides; other subdomains and
+// other ports count as different hosts. With
 // no valid article URL every link is rejected.
 func sameHost(article *url.URL) func(string) bool {
 	if article == nil {
 		return nil
 	}
-	want := canonicalHost(article)
+	wantHost, wantPort := canonicalHost(article), explicitPort(article)
 	return func(raw string) bool {
 		u, err := url.Parse(raw)
-		return err == nil && isWebURL(u) && canonicalHost(u) == want
+		return err == nil && isWebURL(u) && canonicalHost(u) == wantHost && explicitPort(u) == wantPort
+	}
+}
+
+// explicitPort returns the URL's port, or "" when it has none or names the
+// scheme's default (http 80, https 443). A link to another port on the
+// article's host is a different service, so sameHost requires it to match.
+func explicitPort(u *url.URL) string {
+	switch p := u.Port(); {
+	case p == "",
+		u.Scheme == "https" && p == "443",
+		u.Scheme == "http" && p == "80":
+		return ""
+	default:
+		return p
 	}
 }
 

@@ -31,6 +31,9 @@ the first problem. Useful for vetting a config edit before systemctl start.`,
 			adminChat := cfg.Telegram.AdminChat
 			if adminChat == "" {
 				adminChat = "(falls back to channel)"
+				_, _ = fmt.Fprintln(cmd.ErrOrStderr(),
+					"warning: telegram.admin_chat is not set; failure alerts will be posted to the public channel "+
+						"(without the server hostname). Set admin_chat to a private chat.")
 			}
 			drupalFeed := cfg.DrupalSecurity.FeedURL
 			if drupalFeed == "" {
