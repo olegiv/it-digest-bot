@@ -21,6 +21,22 @@ and this project adheres to [Semantic Versioning 2.0.0](https://semver.org/spec/
   modernc.org/sqlite requires the exact libc version from its own go.mod.
   They are pinned back, and `TestModerncPinnedToSQLite` now fails whenever
   they drift.
+- `telegram.CleanText` also removes invisible characters that are not
+  format characters: variation selectors, private-use characters,
+  noncharacters, Hangul fillers (U+115F, U+1160, U+3164, U+FFA0), U+034F
+  and U+17B4/U+17B5; U+2800 BRAILLE PATTERN BLANK becomes a space. They
+  could fake empty or padded fields in posts.
+- All four systemd units add `CapabilityBoundingSet=` (no capabilities),
+  `AmbientCapabilities=`, `PrivateDevices`, `ProtectClock`,
+  `ProtectHostname`, `ProtectKernelLogs`, `ProtectProc=invisible`,
+  `RestrictRealtime`, `RemoveIPC` and `UMask=0077` (state DB, WAL files
+  and backups private to the service user). `systemd-analyze security`
+  exposure drops from 4.4-4.5 to 1.2 per unit. Re-run
+  `deploy/install.sh` to install them.
+- Source-package and Ubuntu-release validation live in the new leaf
+  package `internal/pkgname`, shared by `internal/config` and
+  `internal/distrosec` (DSA titles included), so config and feeds apply
+  the same rules.
 - Ubuntu/Debian security sources only decode the feeds; HTML-to-text,
   paragraph cleaning and classification run for advisories that touch a
   watched package. The Ubuntu notices response limit is 16 MiB (a page is

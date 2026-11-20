@@ -39,3 +39,17 @@ ProtectKernelTunables=true
 ProtectKernelModules=true
 ProtectControlGroups=true
 RestrictNamespaces=true
+# Further hardening (systemd-analyze security). The services run as the
+# unprivileged it-digest user and need no capabilities, devices, clock,
+# hostname or kernel-log access. UMask=0077 keeps the state DB, its WAL
+# files and the backups private to that user.
+CapabilityBoundingSet=
+AmbientCapabilities=
+PrivateDevices=true
+ProtectClock=true
+ProtectHostname=true
+ProtectKernelLogs=true
+ProtectProc=invisible
+RestrictRealtime=true
+RemoveIPC=true
+UMask=0077

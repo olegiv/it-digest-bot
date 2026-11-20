@@ -8,10 +8,11 @@ import (
 	"net"
 	"net/url"
 	"os"
-	"regexp"
 	"strings"
 
 	"github.com/BurntSushi/toml"
+
+	"github.com/olegiv/it-digest-bot/internal/pkgname"
 )
 
 const (
@@ -107,11 +108,6 @@ type DebianSecurityConfig struct {
 
 // MaxWatchedPackages bounds each distro package list.
 const MaxWatchedPackages = 200
-
-var (
-	releaseCodenameRe = regexp.MustCompile(`^[a-z]{3,20}$`)
-	sourcePackageRe   = regexp.MustCompile(`^[a-z0-9][a-z0-9+.\-]{0,63}$`)
-)
 
 type LLMConfig struct {
 	Model     string `toml:"model"`
@@ -252,7 +248,7 @@ func (c *Config) Validate() error {
 	if err := validateFeedURL("php.advisories_url", c.PHP.AdvisoriesURL); err != nil {
 		errs = append(errs, err.Error())
 	}
-	if c.UbuntuSecurity.Release != "" && !releaseCodenameRe.MatchString(c.UbuntuSecurity.Release) {
+	if c.UbuntuSecurity.Release != "" && !pkgname.ValidUbuntuRelease(c.UbuntuSecurity.Release) {
 		errs = append(errs, fmt.Sprintf("ubuntu_security.release %q is not an Ubuntu codename (e.g. \"noble\")", c.UbuntuSecurity.Release))
 	}
 	errs = append(errs, validatePackages("ubuntu_security.packages", c.UbuntuSecurity.Packages)...)
@@ -310,7 +306,7 @@ func validatePackages(key string, pkgs []string) []string {
 		errs = append(errs, fmt.Sprintf("%s lists %d packages (max %d)", key, len(pkgs), MaxWatchedPackages))
 	}
 	for _, p := range pkgs {
-		if !sourcePackageRe.MatchString(p) {
+		if !pkgname.ValidSourcePackage(p) {
 			errs = append(errs, fmt.Sprintf("%s: %q is not a source package name", key, p))
 		}
 	}

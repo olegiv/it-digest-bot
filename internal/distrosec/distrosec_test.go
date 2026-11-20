@@ -653,3 +653,19 @@ func TestParsingDefersAnalysis(t *testing.T) {
 		t.Errorf("Analyze clobbered a hand-built Notice: %+v", manual)
 	}
 }
+
+// TestDebianTitlePackageValidated: the DSA title's package token follows
+// the same rule as the config's package lists (DST-009).
+func TestDebianTitlePackageValidated(t *testing.T) {
+	t.Parallel()
+	feed := `<?xml version="1.0"?><rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#" xmlns="http://purl.org/rss/1.0/"><channel><title>x</title></channel>
+<item><title>DSA-1-1 NGINX - security update</title><description>x</description></item>
+<item><title>DSA-2-1 php8.4 - security update</title><description>x</description></item></rdf:RDF>`
+	notices, warnings, err := ParseDebianFeed([]byte(feed))
+	if err != nil || len(notices) != 1 || notices[0].ID != "DSA-2-1" || len(warnings) != 1 {
+		t.Errorf("notices %+v warnings %v err %v", notices, warnings, err)
+	}
+	if ValidPackageName("NGINX") || !ValidUbuntuRelease("noble") {
+		t.Error("distrosec validators must match pkgname")
+	}
+}

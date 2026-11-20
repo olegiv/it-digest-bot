@@ -33,7 +33,9 @@ const (
 
 // dsaTitleRe matches "DSA-6642-1 nginx - security update" and
 // "DSA-6637-2 needrestart - regression update".
-var dsaTitleRe = regexp.MustCompile(`^(DSA-\d{1,6}-\d{1,3})\s+([a-z0-9][a-z0-9+.\-]{0,63})\s+-\s+([A-Za-z ]{1,40})$`)
+// The package token is checked with ValidPackageName (pkgname), the rule
+// the config applies to watched package lists.
+var dsaTitleRe = regexp.MustCompile(`^(DSA-\d{1,6}-\d{1,3})\s+(\S{1,64})\s+-\s+([A-Za-z ]{1,40})$`)
 
 // DebianClient reads the Debian Security Advisory feed.
 type DebianClient struct {
@@ -110,7 +112,7 @@ func ParseDebianFeed(body []byte) ([]Notice, []string, error) {
 		}
 		title := cleanLine(item.Title, 200)
 		m := dsaTitleRe.FindStringSubmatch(title)
-		if m == nil {
+		if m == nil || !ValidPackageName(m[2]) {
 			warnings = append(warnings, fmt.Sprintf("item %d: not a DSA title %.80q", i, title))
 			continue
 		}

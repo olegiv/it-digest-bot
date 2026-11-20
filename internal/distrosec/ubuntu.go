@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/olegiv/it-digest-bot/internal/httpx"
+	"github.com/olegiv/it-digest-bot/internal/pkgname"
 )
 
 const (
@@ -39,13 +40,12 @@ const (
 
 var (
 	usnIDRe         = regexp.MustCompile(`^USN-\d{1,6}-\d{1,3}$`)
-	codenameRe      = regexp.MustCompile(`^[a-z]{3,20}$`)
 	ubuntuVersionRe = regexp.MustCompile(`^\d{2}\.\d{2}$`)
 )
 
 // ValidUbuntuRelease reports whether s looks like an Ubuntu release codename
 // ("noble").
-func ValidUbuntuRelease(s string) bool { return codenameRe.MatchString(s) }
+func ValidUbuntuRelease(s string) bool { return pkgname.ValidUbuntuRelease(s) }
 
 // UbuntuClient reads Ubuntu Security Notices for one release.
 type UbuntuClient struct {

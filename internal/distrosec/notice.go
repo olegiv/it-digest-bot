@@ -8,6 +8,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/olegiv/it-digest-bot/internal/pkgname"
 	"github.com/olegiv/it-digest-bot/internal/telegram"
 )
 
@@ -53,17 +54,15 @@ func (n *Notice) Analyze() {
 }
 
 var (
-	cveRe     = regexp.MustCompile(`^CVE-\d{4}-\d{4,7}$`)
-	pkgNameRe = regexp.MustCompile(`^[a-z0-9][a-z0-9+.\-]{0,63}$`)
+	cveRe = regexp.MustCompile(`^CVE-\d{4}-\d{4,7}$`)
 	// versionRe bounds a package version shown in a post; Debian versions
 	// use letters, digits and ".+~:-".
 	versionRe = regexp.MustCompile(`^[A-Za-z0-9.+~:\-]{1,80}$`)
 )
 
 // ValidPackageName reports whether s is a valid Debian/Ubuntu source
-// package name (lowercase letters, digits, "+", "-", "."; starting with a
-// letter or digit; at most 64 bytes).
-func ValidPackageName(s string) bool { return pkgNameRe.MatchString(s) }
+// package name; see pkgname.ValidSourcePackage, which config uses too.
+func ValidPackageName(s string) bool { return pkgname.ValidSourcePackage(s) }
 
 // paragraphs splits advisory text on blank lines and cleans each paragraph
 // (telegram.CleanText), dropping empty ones.
