@@ -18,6 +18,12 @@ and this project adheres to [Semantic Versioning 2.0.0](https://semver.org/spec/
   fine-grained token with no permissions is enough (`public_repo` is not
   needed).
 - Deploy scripts quote the SSH host in every `ssh` call.
+- Removed Claude Code commands and an agent copied from another project
+  (`.claude/commands/{build,clean,migrate,test}.md`,
+  `.claude/agents/test-runner.md`): they described oCMS (`make assets`,
+  goose migrations, `OCMS_SESSION_SECRET`), and `/clean` told the agent to
+  delete databases. README and CLAUDE.md document initialising the
+  `.claude/shared` submodule, without which the shared hooks do not run.
 
 ### Added
 

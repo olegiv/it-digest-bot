@@ -244,6 +244,16 @@ See [CHANGELOG.md](./CHANGELOG.md) for release notes.
 
 ## Development
 
+Shared Claude Code agents, commands and hooks come from the
+[`olegiv/claude-code-support-tools`](https://github.com/olegiv/claude-code-support-tools)
+submodule at `.claude/shared`; `.claude/agents`, `.claude/commands` and
+`.claude/hooks` symlink into it. Initialise it once per clone, or the
+symlinks dangle and the Go hooks in `.claude/settings.json` do not run:
+
+```bash
+git submodule update --init          # or clone with --recurse-submodules
+```
+
 ```bash
 make help            # list Makefile targets
 make all             # build the default local/dev binary
