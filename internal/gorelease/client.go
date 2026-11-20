@@ -13,6 +13,7 @@ import (
 	"golang.org/x/net/html"
 
 	"github.com/olegiv/it-digest-bot/internal/httpx"
+	"github.com/olegiv/it-digest-bot/internal/telegram"
 )
 
 const (
@@ -208,6 +209,6 @@ func textContent(n *html.Node) string {
 	return b.String()
 }
 
-func normalizeText(s string) string {
-	return strings.Join(strings.Fields(s), " ")
-}
+// normalizeText flattens extracted page text to one clean line (see
+// telegram.CleanText).
+func normalizeText(s string) string { return telegram.CleanText(s) }

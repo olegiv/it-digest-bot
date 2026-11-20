@@ -7,8 +7,137 @@ and this project adheres to [Semantic Versioning 2.0.0](https://semver.org/spec/
 
 ## [Unreleased]
 
+### Changed
+
+- Dependencies: `golang.org/x/net` v0.63.0, `golang.org/x/sync` v0.25.0,
+  `modernc.org/sqlite` v1.62.0 (with `modernc.org/libc` v1.82.2,
+  `modernc.org/memory` v1.13.0), `golang.org/x/sys` v0.50.0,
+  `golang.org/x/text` v0.44.0 and `github.com/spf13/pflag` v1.1.0. Routine
+  updates; govulncheck reported nothing for the previous versions.
+- `GITHUB_TOKEN` documentation: only public data is read, so a
+  fine-grained token with no permissions is enough (`public_repo` is not
+  needed).
+- Deploy scripts quote the SSH host in every `ssh` call.
+- Removed Claude Code commands and an agent copied from another project
+  (`.claude/commands/{build,clean,migrate,test}.md`,
+  `.claude/agents/test-runner.md`): they described oCMS (`make assets`,
+  goose migrations, `OCMS_SESSION_SECRET`), and `/clean` told the agent to
+  delete databases. README and CLAUDE.md document initialising the
+  `.claude/shared` submodule, without which the shared hooks do not run.
+- `/commit-do` now refers to `/commit-prepare` (it named a nonexistent
+  `/prepare-commit`), stages only the reviewed files by explicit path
+  instead of `git add .`, and passes the message to `git commit -F` via a
+  `mktemp` file so it never goes through the shell.
+- Removed the unused `.claude/hooks/setup-go-toolchain.sh`, which ran
+  `rm -rf /usr/local/go` and installed an unverified tarball from a
+  predictable `/tmp` path.
+
+### Added
+
+- `digest watch` now posts PHP releases from php.net
+  (`https://www.php.net/releases/active.php`): the latest release of every
+  supported branch, recorded in `releases_seen` under package `php`. Posts
+  show whether the release opens a new branch, updates the current branch
+  or an older one, mark releases php.net tags as `security`, and link the
+  announcement, ChangeLog and downloads. Implemented in
+  `internal/phprelease`.
+- `digest watch` now posts PHP security advisories, which the PHP project
+  publishes as GitHub security advisories on `php/php-src`. Each new
+  published, non-withdrawn advisory is recorded under package
+  `php-security` (keyed by GHSA ID) and posted with severity, CVSS score,
+  CVE, CWE, affected and fixed versions and a description excerpt.
+  `GITHUB_TOKEN` is used when set, and only for `https://api.github.com`.
+  Implemented in `internal/phpsec`.
+- Both PHP sources run in the same hourly run as the Go source and seed on
+  their first run: the current state is recorded as the baseline and one
+  "now tracked" notice is posted per source. Optional `[php] releases_url`
+  and `advisories_url` overrides follow the existing feed URL rules and are
+  printed by `digest config-check`.
+
 ### Security
 
+- Shared HTTP client: a `Retry-After` longer than 60 seconds now ends the
+  retries at once with the last error instead of being slept on. A hostile
+  or broken upstream could previously stall `digest watch` for hours, so
+  the next hourly run was skipped without any failure alert.
+- `it-digest-watch.service` sets `TimeoutStartSec=10min`. A run that hangs
+  anyway is stopped and marked failed, which fires the existing Telegram
+  failure alert. Re-run `deploy/install.sh` to install the updated unit.
+- PHP security advisories: control characters (ESC, NUL, BEL, …) and
+  Unicode format characters (bidi overrides, zero-width characters) are
+  removed from advisory text before rendering. They could otherwise reach
+  terminals through `--dry-run` output, make Telegram reject the post on
+  every run, or visually reorder text.
+- PHP releases: versions with leading zeros are rejected, so `08.5.1`
+  cannot become a second record of `8.5.1`, and a response listing more
+  than 32 branches is treated as broken instead of producing a burst of
+  posts.
+- Daily digest: links in the model's blurbs stay live only when they point
+  at the article's own host (`www.` ignored; other subdomains, other hosts,
+  `javascript:`, relative and userinfo URLs are not). Other links keep only
+  their text, and bare `http(s)://` URLs to other hosts, which Telegram
+  would auto-link, are removed. Previously any link survived, so a prompt
+  injection in a feed item could make the model post an arbitrary link to
+  the channel. Code spans and formatting render as before. Links inside the
+  headline become text, since the headline already links to the article
+  and Telegram rejects nested links. The article link itself is used only
+  when the item URL is an absolute `http(s)` URL of at most 512 bytes.
+- Daily digest hardening:
+  - Bare link tokens of any scheme (`tg://`, `ton://`, `ftp://`, …) and
+    `www.` tokens are dropped unless they point at the article's host, also
+    when glued to a preceding word (`_https://…`, `1https://…`). A token
+    ends at characters that cannot appear unencoded in a URL, so a second
+    URL glued onto an allowed one is checked on its own.
+  - Filtering repeats until nothing more is removed, so removing a link
+    cannot glue its neighbours into a new one
+    (`tg:[//evil.example](https://x)`).
+  - Headlines are capped at 300 bytes and blurbs at 700 before escaping.
+    A source group that does not fit one message is split across messages
+    (repeating the source name), and an entry that cannot fit even alone
+    is skipped with a warning instead of failing the whole send.
+  - Every entry is checked with the new `telegram.WellFormedMarkdownV2`
+    and falls back to plain text if Telegram would reject it.
+- MarkdownV2 escaping: an empty code span or fence is emitted as literal
+  backticks, a link nested in a link's text becomes text, and a backslash
+  before a line break no longer lets a link span lines. Each of these
+  produced MarkdownV2 that Telegram rejects (for release notes, failing
+  every hourly run until the upstream text changed). Output is otherwise
+  unchanged. A fuzz test checks that every escaper yields well-formed
+  output.
+- Telegram `sendMessage` is no longer retried after a 5xx response or a
+  dropped connection, when Telegram may already have posted the message;
+  a retry posted it twice. Only HTTP 429 and failed connection setup (DNS,
+  dial) are retried. An unsent release stays unrecorded and is posted on
+  the next hourly run. New `httpx.RetryPolicy` (`WithRetryPolicy`,
+  `SetRetryPolicy`); `telegram.New` installs `httpx.NotSentRetryable`.
+- The shared HTTP client drops `X-Api-Key`-style headers on a redirect to
+  another host (net/http only drops `Authorization` and `Cookie`), so the
+  Anthropic API key cannot follow a redirect.
+- Daily digest: a link on the article's host but another port
+  (`good.com:8443`) is no longer kept live; default ports are ignored.
+- Failure alerts posted to the public channel (no `admin_chat`) no longer
+  include the server's hostname, and `digest config-check` warns when
+  `admin_chat` is unset.
+- `it-digest-backup.service` (`TimeoutStartSec=5min`) and
+  `it-digest-notify@.service` (`2min`) now have start timeouts too.
+- Sent messages are recorded even when the run is being stopped (SIGTERM
+  from `systemctl stop`, a `TimeoutStartSec` expiry or a reboot). The writes
+  after a successful send now use `store.AfterSend`, a context that is not
+  cancelled with the run and is bounded to 5 seconds. Before, a stop
+  between the send and the write lost the record and the next run posted
+  the same release, seed notice or digest again.
+- New `telegram.CleanText` removes control characters and Unicode format
+  characters (bidi overrides, zero-width characters) from untrusted text.
+  It is now used for PHP advisories, Drupal advisories (title, description,
+  solution and fields: HTML character references such as `&#x1b;` decoded
+  to real control characters), Go release-history text and the daily
+  digest.
+- `it-digest-daily.service` sets `TimeoutStartSec=30min`, so a hung digest
+  run is stopped and reported through the failure alert. Re-run
+  `deploy/install.sh` (or `make deploy`) to install the updated units.
+- GitHub Actions are pinned to full commit SHAs (`actions/checkout`
+  v6.1.0, `actions/setup-go` v6.5.0, `golangci/golangci-lint-action`
+  v9.3.0) instead of movable tags.
 - `golang.org/x/net` updated to `v0.62.0` (with `golang.org/x/sync`
   `v0.24.0`, `golang.org/x/sys` `v0.49.0` and `golang.org/x/text`
   `v0.43.0`), fixing two `x/net/html` vulnerabilities reachable from the

@@ -8,6 +8,8 @@ Group=it-digest
 Environment=TZ=Europe/Zurich
 EnvironmentFile=/etc/it-digest/env
 ExecStart=/usr/local/bin/digest notify --unit %i --config /etc/it-digest/config.toml
+# One Telegram send with a few retries; never let an alert hang around.
+TimeoutStartSec=2min
 StandardOutput=journal
 StandardError=journal
 

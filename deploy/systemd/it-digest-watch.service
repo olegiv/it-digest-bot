@@ -12,6 +12,12 @@ User=it-digest
 Group=it-digest
 EnvironmentFile=/etc/it-digest/env
 ExecStart=/usr/local/bin/digest watch --config /etc/it-digest/config.toml
+# A oneshot unit has no start timeout by default. Bound the run so hung
+# upstreams cannot stall it into the next hourly trigger: on timeout systemd
+# stops the run and marks the unit failed, which fires the OnFailure alert
+# above. A normal run takes seconds. Releases already posted are recorded,
+# so the next run continues where this one stopped.
+TimeoutStartSec=10min
 StandardOutput=journal
 StandardError=journal
 

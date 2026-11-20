@@ -233,3 +233,52 @@ func TestEscaperIsIdempotentOnEscaped(t *testing.T) {
 		t.Errorf("escaper appears to be lossy on its own output")
 	}
 }
+
+func TestEscapeMarkdownV2Links(t *testing.T) {
+	t.Parallel()
+	allow := func(u string) bool { return strings.HasPrefix(u, "https://ok.example/") }
+	for _, tc := range []struct{ in, want string }{
+		{"[a](https://ok.example/x)", "[a](https://ok.example/x)"},
+		{"[a](https://bad.example/x)", "a"},
+		{"[a.b](https://bad.example/x)", "a\\.b"},
+		{"[[x](https://ok.example/1)](https://ok.example/2)", "[x](https://ok.example/2)"},
+		{"[see [x](https://ok.example/1)](https://bad.example/2)", "see [x](https://ok.example/1)"},
+		{"`[a](https://bad.example/)` kept", "`[a](https://bad.example/)` kept"},
+		{"go https://bad.example/p?q=1. now", "go \\. now"},
+		{"go HTTPS://bad.example/p now", "go  now"},
+		{"go https://ok.example/p_1. now", "go https://ok\\.example/p\\_1\\. now"},
+		{"(https://bad.example/x)", "\\(\\)"},
+		{"xhttps://bad.example/ and /https://bad.example/", " and /"},
+		{"https:// alone", "https:// alone"},
+		{"*bold* _it_", "\\*bold\\* \\_it\\_"},
+	} {
+		if got := EscapeMarkdownV2Links(tc.in, allow); got != tc.want {
+			t.Errorf("EscapeMarkdownV2Links(%q) = %q, want %q", tc.in, got, tc.want)
+		}
+	}
+	if got := EscapeMarkdownV2Links("[a](https://ok.example/) https://ok.example/", nil); got != "a " {
+		t.Errorf("nil policy = %q, want every link dropped", got)
+	}
+	if got := EscapeMarkdownV2Links("https://", nil); got != "https://" {
+		t.Errorf("bare scheme = %q, want it kept as text", got)
+	}
+}
+
+func TestEscapeMarkdownV2LinkText(t *testing.T) {
+	t.Parallel()
+	in := "New `x` [link](https://a.example/) https://b.example/ *b*"
+	want := "New `x` link https://b\\.example/ \\*b\\*"
+	if got := EscapeMarkdownV2LinkText(in); got != want {
+		t.Errorf("EscapeMarkdownV2LinkText = %q, want %q", got, want)
+	}
+}
+
+// TestEscapeMarkdownV2Unchanged pins that the unfiltered escaper still keeps
+// links, including ones in link text, exactly as before.
+func TestEscapeMarkdownV2Unchanged(t *testing.T) {
+	t.Parallel()
+	in := "[a](https://x.example/) https://y.example/ `c`"
+	if got, want := EscapeMarkdownV2(in), "[a](https://x.example/) https://y\\.example/ `c`"; got != want {
+		t.Errorf("EscapeMarkdownV2 = %q, want %q", got, want)
+	}
+}

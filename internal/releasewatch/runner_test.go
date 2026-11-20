@@ -566,14 +566,13 @@ func TestRunnerSeedNoticeSendFailureRecordsNothing(t *testing.T) {
 func TestRunnerSeedRecordFailureLeavesNoHistory(t *testing.T) {
 	t.Parallel()
 
-	// The notice goes out, then the store write fails (simulated by
-	// cancelling the run context from inside the send). Nothing may be
-	// recorded: a partial history would turn the next run into a flood of
-	// individual posts for every item the seed did not reach.
+	// The notice goes out, then the store write fails (simulated by a
+	// trigger installed from inside the send). Nothing may be recorded: a
+	// partial history would turn the next run into a flood of individual
+	// posts for every item the seed did not reach.
 	st := openStore(t)
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	bot := &fakeSender{onSend: cancel}
+	ctx := context.Background()
+	bot := &fakeSender{onSend: failReleaseWrites(t, st)}
 	src := &fakeSeeder{
 		fakeSource: fakeSource{name: "feed", candidates: seedCandidates("feed", "pkg-feed", "1", "2", "3")},
 		pkg:        "pkg-feed",
@@ -597,6 +596,7 @@ func TestRunnerSeedRecordFailureLeavesNoHistory(t *testing.T) {
 
 	// Next run seeds again (one notice, no individual posts) instead of
 	// announcing history.
+	restoreReleaseWrites(t, st)
 	bot.onSend = nil
 	res, err = r.Run(context.Background())
 	if err != nil {
@@ -896,14 +896,13 @@ func TestRunnerSeedValidatesCandidates(t *testing.T) {
 func TestRunnerRecordFailureIsNotPosted(t *testing.T) {
 	t.Parallel()
 
-	// Telegram accepts the message but the store write fails (context
-	// cancelled from inside the send): the item must not count as posted,
+	// Telegram accepts the message but the store write fails (a trigger
+	// installed from inside the send): the item must not count as posted,
 	// since OutcomePosted means sent AND recorded. The message id is kept so
 	// the operator can find the orphaned post.
 	st := openStore(t)
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	bot := &fakeSender{onSend: cancel}
+	ctx := context.Background()
+	bot := &fakeSender{onSend: failReleaseWrites(t, st)}
 	r := &Runner{
 		Sources: []Source{fakeSource{name: "a", candidates: []Candidate{candidate("a", "pkg", "1.0.0")}}},
 		Channel: "@ch", Bot: bot, Releases: st.Releases, Posts: st.Posts,
@@ -954,5 +953,78 @@ func TestRunnerNonSeederSourcePostsHistory(t *testing.T) {
 	}
 	if res.PostedCount() != 2 || res.SeededCount() != 0 || bot.calls != 2 {
 		t.Errorf("plain source: posted %d seeded %d calls %d", res.PostedCount(), res.SeededCount(), bot.calls)
+	}
+}
+
+// TestRunnerRecordsSentPostWhenCancelled: a SIGTERM (systemd stop or
+// TimeoutStartSec) that cancels the run right after Telegram accepted a
+// post must not lose the record, or the next run would post it again.
+func TestRunnerRecordsSentPostWhenCancelled(t *testing.T) {
+	t.Parallel()
+	st := openStore(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	bot := &fakeSender{onSend: cancel}
+	r := &Runner{
+		Sources:  []Source{fakeSource{name: "go", candidates: []Candidate{candidate("go", "go", "go1.27.5"), candidate("go", "go", "go1.27.6")}}},
+		Channel:  "@ch",
+		Bot:      bot,
+		Releases: st.Releases,
+		Posts:    st.Posts,
+	}
+	res, _ := r.Run(ctx)
+	if res.PostedCount() < 1 {
+		t.Fatalf("posted = %d, want the first send recorded", res.PostedCount())
+	}
+	seen, err := st.Releases.HasSeen(context.Background(), "go", "go1.27.5")
+	if err != nil || !seen {
+		t.Fatalf("sent release not recorded after cancellation: seen=%v err=%v", seen, err)
+	}
+	if n, _ := st.Posts.Count(context.Background(), store.KindRelease); n < 1 {
+		t.Errorf("posts_log rows = %d, want the audit row too", n)
+	}
+}
+
+func TestRunnerRecordsSeedWhenCancelledAfterNotice(t *testing.T) {
+	t.Parallel()
+	st := openStore(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	src := &fakeSeeder{
+		fakeSource: fakeSource{name: "php", candidates: seedCandidates("php", "php", "8.4.1", "8.5.1")},
+		pkg:        "php",
+		notice:     &Announcement{Text: "notice"},
+	}
+	r := &Runner{Sources: []Source{src}, Channel: "@ch", Bot: &fakeSender{onSend: cancel}, Releases: st.Releases, Posts: st.Posts}
+	if _, err := r.Run(ctx); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	for _, v := range []string{"8.4.1", "8.5.1"} {
+		if seen, err := st.Releases.HasSeen(context.Background(), "php", v); err != nil || !seen {
+			t.Errorf("seeded %s not recorded after cancellation: seen=%v err=%v", v, seen, err)
+		}
+	}
+}
+
+// failReleaseWrites returns a send hook that makes every later insert into
+// releases_seen fail, simulating a store error right after Telegram accepted
+// a message. (Cancelling the run context no longer does: writes after a
+// successful send use store.AfterSend.)
+func failReleaseWrites(t *testing.T, st *store.Store) func() {
+	t.Helper()
+	return func() {
+		_, err := st.DB().ExecContext(context.Background(),
+			`CREATE TRIGGER IF NOT EXISTS fail_releases_seen BEFORE INSERT ON releases_seen
+			 BEGIN SELECT RAISE(ABORT, 'simulated store failure'); END`)
+		if err != nil {
+			t.Errorf("install failing trigger: %v", err)
+		}
+	}
+}
+
+func restoreReleaseWrites(t *testing.T, st *store.Store) {
+	t.Helper()
+	if _, err := st.DB().ExecContext(context.Background(), `DROP TRIGGER IF EXISTS fail_releases_seen`); err != nil {
+		t.Fatalf("drop failing trigger: %v", err)
 	}
 }

@@ -196,3 +196,15 @@ func TestSourceRendersWithHistorySummary(t *testing.T) {
 		t.Fatalf("download_url = %v, want %v", got, want)
 	}
 }
+
+func TestExtractReleaseSummaryStripsControlAndFormatRunes(t *testing.T) {
+	t.Parallel()
+	page := []byte(`<html><body><p id="go1.27.5">go1.27.5&#x1b;[2J includes&#x202e; fixes&#x200b;.</p></body></html>`)
+	summary, err := ExtractReleaseSummary(page, "go1.27.5")
+	if err != nil {
+		t.Fatalf("ExtractReleaseSummary: %v", err)
+	}
+	if summary != "go1.27.5 [2J includes fixes." {
+		t.Errorf("summary = %q", summary)
+	}
+}

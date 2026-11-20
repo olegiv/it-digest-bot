@@ -9,6 +9,10 @@ Type=oneshot
 User=it-digest
 Group=it-digest
 ExecStart=/usr/local/bin/it-digest-backup
+# A oneshot unit has no start timeout by default. A backup of the small
+# state database takes seconds; a hung sqlite3 or gzip is stopped and marked
+# failed (which fires OnFailure) instead of blocking later runs.
+TimeoutStartSec=5min
 StandardOutput=journal
 StandardError=journal
 

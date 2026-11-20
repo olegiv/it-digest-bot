@@ -13,6 +13,12 @@ Group=it-digest
 Environment=TZ=Europe/Zurich
 EnvironmentFile=/etc/it-digest/env
 ExecStart=/usr/local/bin/digest daily --config /etc/it-digest/config.toml
+# A oneshot unit has no start timeout by default. A normal run takes under a
+# minute; the slowest legitimate one (feeds timing out plus an Anthropic
+# request retried at llm.timeout_seconds each) stays well below this. A run
+# that hangs anyway is stopped and marked failed, which fires the OnFailure
+# alert above, instead of silently swallowing the next day's digest.
+TimeoutStartSec=30min
 StandardOutput=journal
 StandardError=journal
 
