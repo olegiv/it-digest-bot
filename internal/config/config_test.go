@@ -1,6 +1,7 @@
 package config
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -298,6 +299,56 @@ func TestLoadPHPURLs(t *testing.T) {
 		_, err = Load(writeConfig(t, validTOML+"\n[php]\n"+tc.toml+"\n"))
 		if err == nil || !strings.Contains(err.Error(), tc.want) {
 			t.Errorf("%s: err = %v, want %q", tc.toml, err, tc.want)
+		}
+	}
+}
+
+func TestLoadDistroSecurity(t *testing.T) {
+	t.Setenv(EnvTelegramBotToken, "tg-stub")
+
+	cfg, err := Load(writeConfig(t, validTOML))
+	if err != nil {
+		t.Fatalf("Load default: %v", err)
+	}
+	if cfg.UbuntuSecurity.Release != DefaultUbuntuRelease || len(cfg.UbuntuSecurity.Packages) != 0 || len(cfg.DebianSecurity.Packages) != 0 {
+		t.Errorf("defaults = %+v / %+v; want noble and both disabled", cfg.UbuntuSecurity, cfg.DebianSecurity)
+	}
+
+	cfg, err = Load(writeConfig(t, validTOML+`
+[ubuntu_security]
+release  = " jammy "
+packages = [" nginx ", "openssl", "", "php8.3"]
+
+[debian_security]
+packages = ["php8.4", "postgresql-17", "libapache2-mod-php8.4"]
+feed_url = "http://127.0.0.1:9000/dsa.rdf"
+`))
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.UbuntuSecurity.Release != "jammy" || strings.Join(cfg.UbuntuSecurity.Packages, ",") != "nginx,openssl,php8.3" {
+		t.Errorf("ubuntu = %+v", cfg.UbuntuSecurity)
+	}
+	if len(cfg.DebianSecurity.Packages) != 3 || cfg.DebianSecurity.FeedURL != "http://127.0.0.1:9000/dsa.rdf" {
+		t.Errorf("debian = %+v", cfg.DebianSecurity)
+	}
+
+	tooMany := make([]string, MaxWatchedPackages+1)
+	for i := range tooMany {
+		tooMany[i] = fmt.Sprintf("\"p%d\"", i)
+	}
+	for _, tc := range []struct{ toml, want string }{
+		{"[ubuntu_security]\nrelease = \"Noble Numbat\"", "ubuntu_security.release"},
+		{"[ubuntu_security]\npackages = [\"NGINX\"]", "is not a source package name"},
+		{"[debian_security]\npackages = [\"php8.4; rm -rf /\"]", "is not a source package name"},
+		{"[debian_security]\npackages = [" + strings.Join(tooMany, ",") + "]", "max 200"},
+		{"[ubuntu_security]\nnotices_url = \"https://ubuntu.com/security/notices.json?release=noble\"", "ubuntu_security.notices_url must not contain a query string"},
+		{"[debian_security]\nfeed_url = \"http://example.org/dsa.rdf\"", "debian_security.feed_url must use https"},
+		{"[debian_security]\nrelease = \"trixie\"", "unknown config keys"},
+	} {
+		_, err := Load(writeConfig(t, validTOML+"\n"+tc.toml+"\n"))
+		if err == nil || !strings.Contains(err.Error(), tc.want) {
+			t.Errorf("%q: err = %v, want %q", tc.toml, err, tc.want)
 		}
 	}
 }

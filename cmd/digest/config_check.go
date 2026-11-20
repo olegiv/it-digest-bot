@@ -51,6 +51,14 @@ the first problem. Useful for vetting a config edit before systemctl start.`,
 			if phpAdvisories == "" {
 				phpAdvisories = phpsec.DefaultAPIURL + " (default)"
 			}
+			ubuntuSec := "disabled (no packages)"
+			if u := cfg.UbuntuSecurity; len(u.Packages) > 0 {
+				ubuntuSec = fmt.Sprintf("%s, %d packages", u.Release, len(u.Packages))
+			}
+			debianSec := "disabled (no packages)"
+			if n := len(cfg.DebianSecurity.Packages); n > 0 {
+				debianSec = fmt.Sprintf("%d packages", n)
+			}
 			_, _ = fmt.Fprintf(cmd.OutOrStdout(),
 				"config OK\n"+
 					"  telegram.channel     = %s\n"+
@@ -63,6 +71,8 @@ the first problem. Useful for vetting a config edit before systemctl start.`,
 					"  apple_releases.feed  = %s\n"+
 					"  php.releases_url     = %s\n"+
 					"  php.advisories_url   = %s\n"+
+					"  ubuntu_security      = %s\n"+
+					"  debian_security      = %s\n"+
 					"  llm.model            = %s\n"+
 					"  llm.max_tokens       = %d\n"+
 					"  llm.timeout_seconds  = %d\n"+
@@ -78,6 +88,8 @@ the first problem. Useful for vetting a config edit before systemctl start.`,
 				appleFeed,
 				phpReleases,
 				phpAdvisories,
+				ubuntuSec,
+				debianSec,
 				cfg.LLM.Model,
 				cfg.LLM.MaxTokens,
 				cfg.LLM.TimeoutSeconds,

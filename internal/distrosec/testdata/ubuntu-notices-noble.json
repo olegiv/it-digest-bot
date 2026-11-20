@@ -1,0 +1,1093 @@
+{
+ "notices": [
+  {
+   "id": "USN-9183-1",
+   "title": "Linux kernel (FIPS) vulnerabilities",
+   "summary": "Several security issues were fixed in the Linux kernel.\n",
+   "instructions": "After a standard system update you need to reboot your computer to make\nall the necessary changes.\n\nATTENTION: Due to an unavoidable ABI change the kernel updates have\nbeen given a new version number, which requires you to recompile and\nreinstall all third party kernel modules you might have install",
+   "references": [],
+   "published": "2026-11-20T15:34:40.507881",
+   "description": "Several security issues were discovered in the Linux kernel.\nAn attacker could possibly use these to compromise the system.\nThis update corrects flaws in the following subsystems:\n  - USB Gadget drivers;\n  - Memory management;\n  - Multiple devices driver;\n  - Network file systems library;\n  - Networking core;\n  - eXpress Data Path;\n  - Stream parser;\n  - Kernel build system;\n  - ARM32 architecture;\n  - ARM64 architecture;\n  - M68K architecture;\n  - MIPS architecture;\n  - OpenRISC architecture;\n  - PowerPC architecture;\n  - RISC-V architecture;\n  - S390 architecture;\n  - User-Mode Linux (UML);\n  - x86 architecture;\n  - Block layer subsystem;\n  - Intel NPU Driver;\n  - Compute Acceleration Framework;\n  - Speakup Console Speech Driver;\n  - ACPI drivers;\n  - Android drivers;\n  - Serial ATA and Parallel ATA drivers;\n  - Auxiliary display drivers;\n  - Drivers core;\n  - Micron PCIe SSD driver;\n  - Null block device driver;\n  - Ublk userspace block driver;\n  - Compressed RAM block device driver;\n  - Bluetooth drivers;\n  - Bus devices;\n  - AMD CDX bus driver;\n  - Hardware random number generator core;\n  - Character device driver;\n  - TPM device driver;\n  - Clock framework and drivers;\n  - Clocksource drivers;\n  - CPU frequency scaling framework;\n  - CPU idle management framework;\n  - Hardware crypto device drivers;\n  - CXL (Compute Express Link) drivers;\n  - DAX dirext access to differentiated memory framework;\n  - Buffer Sharing and Synchronization framework;\n  - DMA engine subsystem;",
+   "is_hidden": false,
+   "release_packages": {
+    "noble": [
+     {
+      "name": "linux-fips",
+      "version": "6.8.0-151.151+fips1",
+      "description": "Linux kernel with FIPS",
+      "is_source": true
+     },
+     {
+      "name": "linux-buildinfo-6.8.0-151-fips",
+      "version": "6.8.0-151.151+fips1",
+      "is_source": false,
+      "is_visible": false,
+      "source_link": "https://launchpad.net/ubuntu/+source/linux-fips",
+      "version_link": null,
+      "pocket": "fips-updates"
+     },
+     {
+      "name": "linux-cloud-tools-6.8.0-151-fips",
+      "version": "6.8.0-151.151+fips1",
+      "is_source": false,
+      "is_visible": false,
+      "source_link": "https://launchpad.net/ubuntu/+source/linux-fips",
+      "version_link": null,
+      "pocket": "fips-updates"
+     }
+    ]
+   },
+   "type": "USN",
+   "cves": [
+    {
+     "id": "CVE-2026-97587",
+     "notices_ids": [
+      "USN-8959-1",
+      "USN-8960-1"
+     ]
+    },
+    {
+     "id": "CVE-2026-98028",
+     "notices_ids": [
+      "USN-8959-1",
+      "USN-8960-1"
+     ]
+    },
+    {
+     "id": "CVE-2026-74697",
+     "notices_ids": [
+      "USN-8878-1",
+      "USN-8879-1"
+     ]
+    },
+    {
+     "id": "CVE-2026-89470",
+     "notices_ids": [
+      "USN-9002-1",
+      "USN-8961-1"
+     ]
+    }
+   ],
+   "cves_ids": [
+    "CVE-2026-97587",
+    "CVE-2026-98028",
+    "CVE-2026-74697",
+    "CVE-2026-89470",
+    "CVE-2026-98947",
+    "CVE-2026-90111",
+    "CVE-2026-89606",
+    "CVE-2026-97572",
+    "CVE-2026-89972",
+    "CVE-2025-39789",
+    "CVE-2026-90149",
+    "CVE-2026-97541"
+   ],
+   "releases": [
+    {
+     "codename": "noble",
+     "version": "24.04",
+     "support_tag": "LTS"
+    }
+   ],
+   "related_notices": [
+    "USN-8959-1",
+    "USN-8960-1"
+   ]
+  },
+  {
+   "id": "USN-9182-1",
+   "title": "nginx vulnerabilities",
+   "summary": "Several security issues were fixed in nginx.",
+   "instructions": "In general, a standard system update will make all the necessary changes.",
+   "references": [],
+   "published": "2026-11-20T03:15:31.773953",
+   "description": "Marc Luchian and Liviu-Alexandru Bud discovered that nginx did not\ncorrectly handle certain configurations using the try_files and alias\ndirectives. A remote attacker could possibly use this issue to cause nginx\nto crash, resulting in a denial of service. (CVE-2026-125283)\n\nVivek Parikh discovered that nginx did not correctly handle parsing certain\nClientHello messages. A remote attacker could possibly use this issue to\nleak sensitive information. This issue was only addressed in\nUbuntu 18.04 LTS, Ubuntu 20.04 LTS, Ubuntu 22.04 LTS, and Ubuntu 24.04 LTS.\n(CVE-2026-123640)\n\nIt was discovered that nginx did not correctly handle certain TLS\nconnections. A remote attacker could possibly use this issue to cause a\ndenial of service. This issue was only addressed in Ubuntu 18.04 LTS,\nUbuntu 20.04 LTS, and Ubuntu 22.04 LTS. (CVE-2026-118899)",
+   "is_hidden": false,
+   "release_packages": {
+    "bionic": [
+     {
+      "name": "nginx",
+      "version": "1.14.0-0ubuntu1.11+esm7",
+      "description": "small, powerful, scalable web/proxy server",
+      "is_source": true
+     },
+     {
+      "name": "libnginx-mod-http-auth-pam",
+      "version": "1.14.0-0ubuntu1.11+esm7",
+      "is_source": false,
+      "is_visible": false,
+      "source_link": "https://launchpad.net/ubuntu/+source/nginx",
+      "version_link": null,
+      "pocket": "esm-infra"
+     },
+     {
+      "name": "libnginx-mod-http-cache-purge",
+      "version": "1.14.0-0ubuntu1.11+esm7",
+      "is_source": false,
+      "is_visible": false,
+      "source_link": "https://launchpad.net/ubuntu/+source/nginx",
+      "version_link": null,
+      "pocket": "esm-infra"
+     }
+    ],
+    "focal": [
+     {
+      "name": "nginx",
+      "version": "1.18.0-0ubuntu1.7+esm6",
+      "description": "small, powerful, scalable web/proxy server",
+      "is_source": true
+     },
+     {
+      "name": "libnginx-mod-http-auth-pam",
+      "version": "1.18.0-0ubuntu1.7+esm6",
+      "is_source": false,
+      "is_visible": false,
+      "source_link": "https://launchpad.net/ubuntu/+source/nginx",
+      "version_link": null,
+      "pocket": "esm-infra"
+     },
+     {
+      "name": "libnginx-mod-http-cache-purge",
+      "version": "1.18.0-0ubuntu1.7+esm6",
+      "is_source": false,
+      "is_visible": false,
+      "source_link": "https://launchpad.net/ubuntu/+source/nginx",
+      "version_link": null,
+      "pocket": "esm-infra"
+     }
+    ],
+    "jammy": [
+     {
+      "name": "nginx",
+      "version": "1.18.0-6ubuntu14.24",
+      "description": "small, powerful, scalable web/proxy server",
+      "is_source": true
+     },
+     {
+      "name": "libnginx-mod-http-auth-pam",
+      "version": "1.18.0-6ubuntu14.24",
+      "is_source": false,
+      "is_visible": false,
+      "source_link": "https://launchpad.net/ubuntu/+source/nginx",
+      "version_link": "https://launchpad.net/ubuntu/+source/nginx/1.18.0-6ubuntu14.24",
+      "pocket": "security"
+     },
+     {
+      "name": "libnginx-mod-http-cache-purge",
+      "version": "1.18.0-6ubuntu14.24",
+      "is_source": false,
+      "is_visible": false,
+      "source_link": "https://launchpad.net/ubuntu/+source/nginx",
+      "version_link": "https://launchpad.net/ubuntu/+source/nginx/1.18.0-6ubuntu14.24",
+      "pocket": "security"
+     }
+    ],
+    "noble": [
+     {
+      "name": "nginx",
+      "version": "1.24.0-2ubuntu7.21",
+      "description": "small, powerful, scalable web/proxy server",
+      "is_source": true
+     },
+     {
+      "name": "libnginx-mod-http-geoip",
+      "version": "1.24.0-2ubuntu7.21",
+      "is_source": false,
+      "is_visible": false,
+      "source_link": "https://launchpad.net/ubuntu/+source/nginx",
+      "version_link": "https://launchpad.net/ubuntu/+source/nginx/1.24.0-2ubuntu7.21",
+      "pocket": "security"
+     },
+     {
+      "name": "libnginx-mod-http-image-filter",
+      "version": "1.24.0-2ubuntu7.21",
+      "is_source": false,
+      "is_visible": false,
+      "source_link": "https://launchpad.net/ubuntu/+source/nginx",
+      "version_link": "https://launchpad.net/ubuntu/+source/nginx/1.24.0-2ubuntu7.21",
+      "pocket": "security"
+     }
+    ],
+    "resolute": [
+     {
+      "name": "nginx",
+      "version": "1.28.3-2ubuntu1.14",
+      "description": "small, powerful, scalable web/proxy server",
+      "is_source": true
+     },
+     {
+      "name": "libnginx-mod-http-geoip",
+      "version": "1.28.3-2ubuntu1.14",
+      "is_source": false,
+      "is_visible": false,
+      "source_link": "https://launchpad.net/ubuntu/+source/nginx",
+      "version_link": "https://launchpad.net/ubuntu/+source/nginx/1.28.3-2ubuntu1.14",
+      "pocket": "security"
+     },
+     {
+      "name": "libnginx-mod-http-image-filter",
+      "version": "1.28.3-2ubuntu1.14",
+      "is_source": false,
+      "is_visible": false,
+      "source_link": "https://launchpad.net/ubuntu/+source/nginx",
+      "version_link": "https://launchpad.net/ubuntu/+source/nginx/1.28.3-2ubuntu1.14",
+      "pocket": "security"
+     }
+    ],
+    "stonking": [
+     {
+      "name": "nginx",
+      "version": "1.30.4-7ubuntu1.3",
+      "description": "small, powerful, scalable web/proxy server",
+      "is_source": true
+     },
+     {
+      "name": "libnginx-mod-http-geoip",
+      "version": "1.30.4-7ubuntu1.3",
+      "is_source": false,
+      "is_visible": false,
+      "source_link": "https://launchpad.net/ubuntu/+source/nginx",
+      "version_link": "https://launchpad.net/ubuntu/+source/nginx/1.30.4-7ubuntu1.3",
+      "pocket": "security"
+     },
+     {
+      "name": "libnginx-mod-http-image-filter",
+      "version": "1.30.4-7ubuntu1.3",
+      "is_source": false,
+      "is_visible": false,
+      "source_link": "https://launchpad.net/ubuntu/+source/nginx",
+      "version_link": "https://launchpad.net/ubuntu/+source/nginx/1.30.4-7ubuntu1.3",
+      "pocket": "security"
+     }
+    ],
+    "trusty": [
+     {
+      "name": "nginx",
+      "version": "1.4.6-1ubuntu3.9+esm11",
+      "description": "small, powerful, scalable web/proxy server",
+      "is_source": true
+     },
+     {
+      "name": "nginx",
+      "version": "1.4.6-1ubuntu3.9+esm11",
+      "is_source": false,
+      "is_visible": true,
+      "source_link": "https://launchpad.net/ubuntu/+source/nginx",
+      "version_link": null,
+      "pocket": "esm-infra-legacy"
+     },
+     {
+      "name": "nginx-common",
+      "version": "1.4.6-1ubuntu3.9+esm11",
+      "is_source": false,
+      "is_visible": false,
+      "source_link": "https://launchpad.net/ubuntu/+source/nginx",
+      "version_link": null,
+      "pocket": "esm-infra-legacy"
+     }
+    ],
+    "xenial": [
+     {
+      "name": "nginx",
+      "version": "1.10.3-0ubuntu0.16.04.5+esm12",
+      "description": "small, powerful, scalable web/proxy server",
+      "is_source": true
+     },
+     {
+      "name": "nginx",
+      "version": "1.10.3-0ubuntu0.16.04.5+esm12",
+      "is_source": false,
+      "is_visible": true,
+      "source_link": "https://launchpad.net/ubuntu/+source/nginx",
+      "version_link": null,
+      "pocket": "esm-infra-legacy"
+     },
+     {
+      "name": "nginx-common",
+      "version": "1.10.3-0ubuntu0.16.04.5+esm12",
+      "is_source": false,
+      "is_visible": false,
+      "source_link": "https://launchpad.net/ubuntu/+source/nginx",
+      "version_link": null,
+      "pocket": "esm-infra-legacy"
+     }
+    ]
+   },
+   "type": "USN",
+   "cves": [
+    {
+     "id": "CVE-2026-123640",
+     "notices_ids": [
+      "USN-9159-1",
+      "USN-9182-1"
+     ]
+    },
+    {
+     "id": "CVE-2026-125283",
+     "notices_ids": [
+      "USN-9182-1"
+     ]
+    },
+    {
+     "id": "CVE-2026-118899",
+     "notices_ids": [
+      "USN-9159-1",
+      "USN-9182-1"
+     ]
+    }
+   ],
+   "cves_ids": [
+    "CVE-2026-123640",
+    "CVE-2026-125283",
+    "CVE-2026-118899"
+   ],
+   "releases": [
+    {
+     "codename": "stonking",
+     "version": "26.10",
+     "support_tag": ""
+    },
+    {
+     "codename": "resolute",
+     "version": "26.04",
+     "support_tag": "LTS"
+    },
+    {
+     "codename": "noble",
+     "version": "24.04",
+     "support_tag": "LTS"
+    },
+    {
+     "codename": "jammy",
+     "version": "22.04",
+     "support_tag": "LTS"
+    },
+    {
+     "codename": "focal",
+     "version": "20.04",
+     "support_tag": "ESM"
+    },
+    {
+     "codename": "bionic",
+     "version": "18.04",
+     "support_tag": "ESM"
+    },
+    {
+     "codename": "xenial",
+     "version": "16.04",
+     "support_tag": "ESM"
+    },
+    {
+     "codename": "trusty",
+     "version": "14.04",
+     "support_tag": "ESM"
+    }
+   ],
+   "related_notices": [
+    "USN-9159-1"
+   ]
+  },
+  {
+   "id": "USN-9177-1",
+   "title": "PyJWT vulnerability",
+   "summary": "A security issue was fixed in PyJWT.",
+   "instructions": "In general, a standard system update will make all the necessary changes.",
+   "references": [],
+   "published": "2026-11-20T00:45:22.229150",
+   "description": "It was discovered that PyJWT incorrectly accepted non-canonical encodings\nof token signature segments. An attacker could possibly use this issue to\nbypass token revocation checks.",
+   "is_hidden": false,
+   "release_packages": {
+    "jammy": [
+     {
+      "name": "pyjwt",
+      "version": "2.3.0-1ubuntu0.7",
+      "description": "Python 3 implementation of JSON Web Token",
+      "is_source": true
+     },
+     {
+      "name": "python3-jwt",
+      "version": "2.3.0-1ubuntu0.7",
+      "is_source": false,
+      "is_visible": true,
+      "source_link": "https://launchpad.net/ubuntu/+source/pyjwt",
+      "version_link": "https://launchpad.net/ubuntu/+source/pyjwt/2.3.0-1ubuntu0.7",
+      "pocket": "security"
+     }
+    ],
+    "noble": [
+     {
+      "name": "pyjwt",
+      "version": "2.7.0-1ubuntu0.5",
+      "description": "Python 3 implementation of JSON Web Token",
+      "is_source": true
+     },
+     {
+      "name": "python3-jwt",
+      "version": "2.7.0-1ubuntu0.5",
+      "is_source": false,
+      "is_visible": true,
+      "source_link": "https://launchpad.net/ubuntu/+source/pyjwt",
+      "version_link": "https://launchpad.net/ubuntu/+source/pyjwt/2.7.0-1ubuntu0.5",
+      "pocket": "security"
+     }
+    ],
+    "resolute": [
+     {
+      "name": "pyjwt",
+      "version": "2.10.1-4ubuntu1.4",
+      "description": "Python 3 implementation of JSON Web Token",
+      "is_source": true
+     },
+     {
+      "name": "python-jwt-doc",
+      "version": "2.10.1-4ubuntu1.4",
+      "is_source": false,
+      "is_visible": false,
+      "source_link": "https://launchpad.net/ubuntu/+source/pyjwt",
+      "version_link": "https://launchpad.net/ubuntu/+source/pyjwt/2.10.1-4ubuntu1.4",
+      "pocket": "security"
+     },
+     {
+      "name": "python3-jwt",
+      "version": "2.10.1-4ubuntu1.4",
+      "is_source": false,
+      "is_visible": true,
+      "source_link": "https://launchpad.net/ubuntu/+source/pyjwt",
+      "version_link": "https://launchpad.net/ubuntu/+source/pyjwt/2.10.1-4ubuntu1.4",
+      "pocket": "security"
+     }
+    ]
+   },
+   "type": "USN",
+   "cves": [
+    {
+     "id": "CVE-2026-102269",
+     "notices_ids": [
+      "USN-9177-1"
+     ]
+    }
+   ],
+   "cves_ids": [
+    "CVE-2026-102269"
+   ],
+   "releases": [
+    {
+     "codename": "resolute",
+     "version": "26.04",
+     "support_tag": "LTS"
+    },
+    {
+     "codename": "noble",
+     "version": "24.04",
+     "support_tag": "LTS"
+    },
+    {
+     "codename": "jammy",
+     "version": "22.04",
+     "support_tag": "LTS"
+    }
+   ],
+   "related_notices": []
+  },
+  {
+   "id": "USN-9173-1",
+   "title": "Linux kernel vulnerabilities",
+   "summary": "Several security issues were fixed in the Linux kernel.\n",
+   "instructions": "After a standard system update you need to reboot your computer to make\nall the necessary changes.\n\nATTENTION: Due to an unavoidable ABI change the kernel updates have\nbeen given a new version number, which requires you to recompile and\nreinstall all third party kernel modules you might have install",
+   "references": [],
+   "published": "2026-11-19T15:13:04.234039",
+   "description": "Several security issues were discovered in the Linux kernel.\nAn attacker could possibly use these to compromise the system.\nThis update corrects flaws in the following subsystems:\n  - Multiple devices driver;\n  - eXpress Data Path;\n  - Kernel build system;\n  - ARM64 architecture;\n  - PowerPC architecture;\n  - RISC-V architecture;\n  - S390 architecture;\n  - x86 architecture;\n  - Block layer subsystem;\n  - Cryptographic API;\n  - Intel NPU Driver;\n  - Compute Acceleration Framework;\n  - ACPI drivers;\n  - Drivers core;\n  - Ublk userspace block driver;\n  - Bus devices;\n  - Hardware random number generator core;\n  - Clock framework and drivers;\n  - Clocksource drivers;\n  - Hardware crypto device drivers;\n  - CXL (Compute Express Link) drivers;\n  - Buffer Sharing and Synchronization framework;\n  - DMA engine subsystem;\n  - DPLL subsystem;\n  - EDAC drivers;\n  - FireWire subsystem;\n  - Arm Firmware Framework for ARMv8-A(FFA);\n  - ARM SCMI message protocol;\n  - GPIO subsystem;\n  - GPU drivers;\n  - HID subsystem;\n  - Microsoft Hyper-V drivers;\n  - Hardware monitoring drivers;\n  - CoreSight HW tracing drivers;\n  - I2C subsystem;\n  - I3C subsystem;\n  - InfiniBand drivers;\n  - Input Device core drivers;\n  - Input Device (Mouse) drivers;\n  - IOMMU subsystem;\n  - Media drivers;\n  - MMC subsystem;\n  - Network drivers;\n  - Mellanox network drivers;\n  - Microsoft Azure Network Adapter (MANA) driver;\n  - STMicroelectronics network drivers;\n  - Texas Instruments network drivers;\n  - Ethernet team",
+   "is_hidden": false,
+   "release_packages": {
+    "jammy": [
+     {
+      "name": "linux-gcp-6.8",
+      "version": "6.8.0-1074.82~22.04.1",
+      "description": "Linux kernel for Google Cloud Platform (GCP) systems",
+      "is_source": true
+     },
+     {
+      "name": "linux-ibm-6.8",
+      "version": "6.8.0-1070.71~22.04.1",
+      "description": "Linux kernel for IBM cloud systems",
+      "is_source": true
+     },
+     {
+      "name": "linux-oracle-6.8",
+      "version": "6.8.0-1068.72~22.04.1",
+      "description": "Linux kernel for Oracle Cloud systems",
+      "is_source": true
+     }
+    ],
+    "noble": [
+     {
+      "name": "linux",
+      "version": "6.8.0-151.151",
+      "description": "Linux kernel",
+      "is_source": true
+     },
+     {
+      "name": "linux-aws",
+      "version": "6.8.0-1070.76",
+      "description": "Linux kernel for Amazon Web Services (AWS) systems",
+      "is_source": true
+     },
+     {
+      "name": "linux-aws-fips",
+      "version": "6.8.0-1070.76+fips1",
+      "description": "Linux kernel for Amazon Web Services (AWS) systems with FIPS",
+      "is_source": true
+     }
+    ]
+   },
+   "type": "USN",
+   "cves": [
+    {
+     "id": "CVE-2026-90326",
+     "notices_ids": [
+      "USN-8959-1",
+      "USN-8960-1"
+     ]
+    },
+    {
+     "id": "CVE-2026-74344",
+     "notices_ids": [
+      "USN-8888-1",
+      "USN-8889-1"
+     ]
+    },
+    {
+     "id": "CVE-2026-74273",
+     "notices_ids": [
+      "USN-8888-1",
+      "USN-8889-1"
+     ]
+    },
+    {
+     "id": "CVE-2026-90206",
+     "notices_ids": [
+      "USN-8959-1",
+      "USN-8960-1"
+     ]
+    }
+   ],
+   "cves_ids": [
+    "CVE-2026-90326",
+    "CVE-2026-74344",
+    "CVE-2026-74273",
+    "CVE-2026-90206",
+    "CVE-2026-99224",
+    "CVE-2024-56712",
+    "CVE-2026-92480",
+    "CVE-2026-89601",
+    "CVE-2026-97515",
+    "CVE-2026-99203",
+    "CVE-2026-97988",
+    "CVE-2026-53109"
+   ],
+   "releases": [
+    {
+     "codename": "noble",
+     "version": "24.04",
+     "support_tag": "LTS"
+    },
+    {
+     "codename": "jammy",
+     "version": "22.04",
+     "support_tag": "LTS"
+    }
+   ],
+   "related_notices": [
+    "USN-8959-1",
+    "USN-8960-1"
+   ]
+  },
+  {
+   "id": "USN-9159-1",
+   "title": "nginx vulnerabilities",
+   "summary": "Several security issues were fixed in nginx.",
+   "instructions": "In general, a standard system update will make all the necessary changes.",
+   "references": [],
+   "published": "2026-11-19T05:21:17.692963",
+   "description": "Stephen Fewer and Tomer Schwartz discovered that nginx did not correctly\nhandle certain memory operations. A remote attacker could possibly use\nthis issue to cause a denial of service or execute arbitrary code. This\nissue only affected Ubuntu 16.04 LTS, Ubuntu 18.04 LTS, Ubuntu 20.04 LTS,\nUbuntu 22.04 LTS, Ubuntu 24.04 LTS, Ubuntu 26.04 LTS and Ubuntu 26.10.\n(CVE-2026-123007)\n\nAlbert Ebb Metnir and Nir Ohfeld discovered that nginx did not correctly\nhandle certain reusable HTTP/2 connections. A remote attacker could possibly\nuse this issue to cause a denial of service or execute arbitrary code. This\nissue only affected Ubuntu 16.04 LTS, Ubuntu 18.04 LTS, Ubuntu 20.04 LTS,\nUbuntu 22.04 LTS, Ubuntu 24.04 LTS, Ubuntu 26.04 LTS and Ubuntu 26.10.\n(CVE-2026-123633)\n\nIt was discovered that nginx did not correctly handle certain memory\noperations. A remote attacker could possibly use this issue to cause a\ndenial of service or execute arbitrary code. (CVE-2026-113425)\n\nIt was discovered that nginx did not correctly handle resolving certain\nnames or addresses. A remote attacker could possibly use this issue to\ncause a denial of service or execute arbitrary code. (CVE-2026-123634)\n\nIt was discovered that nginx did not correctly handle certain TLS\nconnections. A remote attacker could possibly use this issue to cause\na denial of service. This issue was only addressed in Ubuntu 24.04 LTS,\nUbuntu 26.04 LTS and Ubuntu 26.10. (CVE-2026-118899)\n\nIt was discovered that nginx did not correctly ha",
+   "is_hidden": false,
+   "release_packages": {
+    "bionic": [
+     {
+      "name": "nginx",
+      "version": "1.14.0-0ubuntu1.11+esm6",
+      "description": "small, powerful, scalable web/proxy server",
+      "is_source": true
+     },
+     {
+      "name": "libnginx-mod-http-auth-pam",
+      "version": "1.14.0-0ubuntu1.11+esm6",
+      "is_source": false,
+      "is_visible": false,
+      "source_link": "https://launchpad.net/ubuntu/+source/nginx",
+      "version_link": null,
+      "pocket": "esm-infra"
+     },
+     {
+      "name": "libnginx-mod-http-cache-purge",
+      "version": "1.14.0-0ubuntu1.11+esm6",
+      "is_source": false,
+      "is_visible": false,
+      "source_link": "https://launchpad.net/ubuntu/+source/nginx",
+      "version_link": null,
+      "pocket": "esm-infra"
+     }
+    ],
+    "focal": [
+     {
+      "name": "nginx",
+      "version": "1.18.0-0ubuntu1.7+esm5",
+      "description": "small, powerful, scalable web/proxy server",
+      "is_source": true
+     },
+     {
+      "name": "libnginx-mod-http-auth-pam",
+      "version": "1.18.0-0ubuntu1.7+esm5",
+      "is_source": false,
+      "is_visible": false,
+      "source_link": "https://launchpad.net/ubuntu/+source/nginx",
+      "version_link": null,
+      "pocket": "esm-infra"
+     },
+     {
+      "name": "libnginx-mod-http-cache-purge",
+      "version": "1.18.0-0ubuntu1.7+esm5",
+      "is_source": false,
+      "is_visible": false,
+      "source_link": "https://launchpad.net/ubuntu/+source/nginx",
+      "version_link": null,
+      "pocket": "esm-infra"
+     }
+    ],
+    "jammy": [
+     {
+      "name": "nginx",
+      "version": "1.18.0-6ubuntu14.23",
+      "description": "small, powerful, scalable web/proxy server",
+      "is_source": true
+     },
+     {
+      "name": "libnginx-mod-http-auth-pam",
+      "version": "1.18.0-6ubuntu14.23",
+      "is_source": false,
+      "is_visible": false,
+      "source_link": "https://launchpad.net/ubuntu/+source/nginx",
+      "version_link": "https://launchpad.net/ubuntu/+source/nginx/1.18.0-6ubuntu14.23",
+      "pocket": "security"
+     },
+     {
+      "name": "libnginx-mod-http-cache-purge",
+      "version": "1.18.0-6ubuntu14.23",
+      "is_source": false,
+      "is_visible": false,
+      "source_link": "https://launchpad.net/ubuntu/+source/nginx",
+      "version_link": "https://launchpad.net/ubuntu/+source/nginx/1.18.0-6ubuntu14.23",
+      "pocket": "security"
+     }
+    ],
+    "noble": [
+     {
+      "name": "nginx",
+      "version": "1.24.0-2ubuntu7.20",
+      "description": "small, powerful, scalable web/proxy server",
+      "is_source": true
+     },
+     {
+      "name": "libnginx-mod-http-geoip",
+      "version": "1.24.0-2ubuntu7.20",
+      "is_source": false,
+      "is_visible": false,
+      "source_link": "https://launchpad.net/ubuntu/+source/nginx",
+      "version_link": "https://launchpad.net/ubuntu/+source/nginx/1.24.0-2ubuntu7.20",
+      "pocket": "security"
+     },
+     {
+      "name": "libnginx-mod-http-image-filter",
+      "version": "1.24.0-2ubuntu7.20",
+      "is_source": false,
+      "is_visible": false,
+      "source_link": "https://launchpad.net/ubuntu/+source/nginx",
+      "version_link": "https://launchpad.net/ubuntu/+source/nginx/1.24.0-2ubuntu7.20",
+      "pocket": "security"
+     }
+    ],
+    "resolute": [
+     {
+      "name": "nginx",
+      "version": "1.28.3-2ubuntu1.13",
+      "description": "small, powerful, scalable web/proxy server",
+      "is_source": true
+     },
+     {
+      "name": "libnginx-mod-http-geoip",
+      "version": "1.28.3-2ubuntu1.13",
+      "is_source": false,
+      "is_visible": false,
+      "source_link": "https://launchpad.net/ubuntu/+source/nginx",
+      "version_link": "https://launchpad.net/ubuntu/+source/nginx/1.28.3-2ubuntu1.13",
+      "pocket": "security"
+     },
+     {
+      "name": "libnginx-mod-http-image-filter",
+      "version": "1.28.3-2ubuntu1.13",
+      "is_source": false,
+      "is_visible": false,
+      "source_link": "https://launchpad.net/ubuntu/+source/nginx",
+      "version_link": "https://launchpad.net/ubuntu/+source/nginx/1.28.3-2ubuntu1.13",
+      "pocket": "security"
+     }
+    ],
+    "stonking": [
+     {
+      "name": "nginx",
+      "version": "1.30.4-7ubuntu1.2",
+      "description": "small, powerful, scalable web/proxy server",
+      "is_source": true
+     },
+     {
+      "name": "libnginx-mod-http-geoip",
+      "version": "1.30.4-7ubuntu1.2",
+      "is_source": false,
+      "is_visible": false,
+      "source_link": "https://launchpad.net/ubuntu/+source/nginx",
+      "version_link": "https://launchpad.net/ubuntu/+source/nginx/1.30.4-7ubuntu1.2",
+      "pocket": "security"
+     },
+     {
+      "name": "libnginx-mod-http-image-filter",
+      "version": "1.30.4-7ubuntu1.2",
+      "is_source": false,
+      "is_visible": false,
+      "source_link": "https://launchpad.net/ubuntu/+source/nginx",
+      "version_link": "https://launchpad.net/ubuntu/+source/nginx/1.30.4-7ubuntu1.2",
+      "pocket": "security"
+     }
+    ],
+    "trusty": [
+     {
+      "name": "nginx",
+      "version": "1.4.6-1ubuntu3.9+esm10",
+      "description": "small, powerful, scalable web/proxy server",
+      "is_source": true
+     },
+     {
+      "name": "nginx",
+      "version": "1.4.6-1ubuntu3.9+esm10",
+      "is_source": false,
+      "is_visible": true,
+      "source_link": "https://launchpad.net/ubuntu/+source/nginx",
+      "version_link": null,
+      "pocket": "esm-infra-legacy"
+     },
+     {
+      "name": "nginx-common",
+      "version": "1.4.6-1ubuntu3.9+esm10",
+      "is_source": false,
+      "is_visible": false,
+      "source_link": "https://launchpad.net/ubuntu/+source/nginx",
+      "version_link": null,
+      "pocket": "esm-infra-legacy"
+     }
+    ],
+    "xenial": [
+     {
+      "name": "nginx",
+      "version": "1.10.3-0ubuntu0.16.04.5+esm11",
+      "description": "small, powerful, scalable web/proxy server",
+      "is_source": true
+     },
+     {
+      "name": "nginx",
+      "version": "1.10.3-0ubuntu0.16.04.5+esm11",
+      "is_source": false,
+      "is_visible": true,
+      "source_link": "https://launchpad.net/ubuntu/+source/nginx",
+      "version_link": null,
+      "pocket": "esm-infra-legacy"
+     },
+     {
+      "name": "nginx-common",
+      "version": "1.10.3-0ubuntu0.16.04.5+esm11",
+      "is_source": false,
+      "is_visible": false,
+      "source_link": "https://launchpad.net/ubuntu/+source/nginx",
+      "version_link": null,
+      "pocket": "esm-infra-legacy"
+     }
+    ]
+   },
+   "type": "USN",
+   "cves": [
+    {
+     "id": "CVE-2026-123634",
+     "notices_ids": [
+      "USN-9159-1"
+     ]
+    },
+    {
+     "id": "CVE-2026-120967",
+     "notices_ids": [
+      "USN-9159-1"
+     ]
+    },
+    {
+     "id": "CVE-2026-123007",
+     "notices_ids": [
+      "USN-9159-1"
+     ]
+    },
+    {
+     "id": "CVE-2026-123640",
+     "notices_ids": [
+      "USN-9159-1",
+      "USN-9182-1"
+     ]
+    }
+   ],
+   "cves_ids": [
+    "CVE-2026-123634",
+    "CVE-2026-120967",
+    "CVE-2026-123007",
+    "CVE-2026-123640",
+    "CVE-2026-123633",
+    "CVE-2026-113425",
+    "CVE-2026-118899",
+    "CVE-2026-121810"
+   ],
+   "releases": [
+    {
+     "codename": "stonking",
+     "version": "26.10",
+     "support_tag": ""
+    },
+    {
+     "codename": "resolute",
+     "version": "26.04",
+     "support_tag": "LTS"
+    },
+    {
+     "codename": "noble",
+     "version": "24.04",
+     "support_tag": "LTS"
+    },
+    {
+     "codename": "jammy",
+     "version": "22.04",
+     "support_tag": "LTS"
+    },
+    {
+     "codename": "focal",
+     "version": "20.04",
+     "support_tag": "ESM"
+    },
+    {
+     "codename": "bionic",
+     "version": "18.04",
+     "support_tag": "ESM"
+    },
+    {
+     "codename": "xenial",
+     "version": "16.04",
+     "support_tag": "ESM"
+    },
+    {
+     "codename": "trusty",
+     "version": "14.04",
+     "support_tag": "ESM"
+    }
+   ],
+   "related_notices": [
+    "USN-9182-1"
+   ]
+  },
+  {
+   "id": "USN-9151-1",
+   "title": "needrestart vulnerability",
+   "summary": "needrestart could be made to run programs as an administrator.",
+   "instructions": "In general, a standard system update will make all the necessary changes.",
+   "references": [],
+   "published": "2026-11-18T07:33:31.851769",
+   "description": "Armaan Sandhu discovered that needrestart did not properly handle systemd\ncgroup paths and process names. A local attacker could possibly use these\nissues to escalate privileges.",
+   "is_hidden": false,
+   "release_packages": {
+    "bionic": [
+     {
+      "name": "needrestart",
+      "version": "3.1-1ubuntu0.1+esm4",
+      "description": "check which daemons need to be restarted after library upgrades",
+      "is_source": true
+     },
+     {
+      "name": "needrestart",
+      "version": "3.1-1ubuntu0.1+esm4",
+      "is_source": false,
+      "is_visible": true,
+      "source_link": "https://launchpad.net/ubuntu/+source/needrestart",
+      "version_link": null,
+      "pocket": "esm-apps"
+     }
+    ],
+    "focal": [
+     {
+      "name": "needrestart",
+      "version": "3.4-6ubuntu0.1+esm4",
+      "description": "check which daemons need to be restarted after library upgrades",
+      "is_source": true
+     },
+     {
+      "name": "needrestart",
+      "version": "3.4-6ubuntu0.1+esm4",
+      "is_source": false,
+      "is_visible": true,
+      "source_link": "https://launchpad.net/ubuntu/+source/needrestart",
+      "version_link": null,
+      "pocket": "esm-apps"
+     }
+    ],
+    "jammy": [
+     {
+      "name": "needrestart",
+      "version": "3.5-5ubuntu2.6",
+      "description": "check which daemons need to be restarted after library upgrades",
+      "is_source": true
+     },
+     {
+      "name": "needrestart",
+      "version": "3.5-5ubuntu2.6",
+      "is_source": false,
+      "is_visible": true,
+      "source_link": "https://launchpad.net/ubuntu/+source/needrestart",
+      "version_link": "https://launchpad.net/ubuntu/+source/needrestart/3.5-5ubuntu2.6",
+      "pocket": "security"
+     }
+    ],
+    "noble": [
+     {
+      "name": "needrestart",
+      "version": "3.6-7ubuntu4.6",
+      "description": "check which daemons need to be restarted after library upgrades",
+      "is_source": true
+     },
+     {
+      "name": "needrestart",
+      "version": "3.6-7ubuntu4.6",
+      "is_source": false,
+      "is_visible": true,
+      "source_link": "https://launchpad.net/ubuntu/+source/needrestart",
+      "version_link": "https://launchpad.net/ubuntu/+source/needrestart/3.6-7ubuntu4.6",
+      "pocket": "security"
+     }
+    ],
+    "resolute": [
+     {
+      "name": "needrestart",
+      "version": "3.11-1ubuntu2.26.04.1",
+      "description": "check which daemons need to be restarted after library upgrades",
+      "is_source": true
+     },
+     {
+      "name": "needrestart",
+      "version": "3.11-1ubuntu2.26.04.1",
+      "is_source": false,
+      "is_visible": true,
+      "source_link": "https://launchpad.net/ubuntu/+source/needrestart",
+      "version_link": "https://launchpad.net/ubuntu/+source/needrestart/3.11-1ubuntu2.26.04.1",
+      "pocket": "security"
+     }
+    ],
+    "stonking": [
+     {
+      "name": "needrestart",
+      "version": "3.11-1ubuntu2.26.10.1",
+      "description": "check which daemons need to be restarted after library upgrades",
+      "is_source": true
+     },
+     {
+      "name": "needrestart",
+      "version": "3.11-1ubuntu2.26.10.1",
+      "is_source": false,
+      "is_visible": true,
+      "source_link": "https://launchpad.net/ubuntu/+source/needrestart",
+      "version_link": "https://launchpad.net/ubuntu/+source/needrestart/3.11-1ubuntu2.26.10.1",
+      "pocket": "security"
+     }
+    ],
+    "xenial": [
+     {
+      "name": "needrestart",
+      "version": "2.6-1ubuntu0.1~esm4",
+      "description": "check which daemons need to be restarted after library upgrades",
+      "is_source": true
+     },
+     {
+      "name": "needrestart",
+      "version": "2.6-1ubuntu0.1~esm4",
+      "is_source": false,
+      "is_visible": true,
+      "source_link": "https://launchpad.net/ubuntu/+source/needrestart",
+      "version_link": null,
+      "pocket": "esm-apps-legacy"
+     }
+    ]
+   },
+   "type": "USN",
+   "cves": [
+    {
+     "id": "CVE-2026-124757",
+     "notices_ids": [
+      "USN-9151-1"
+     ]
+    }
+   ],
+   "cves_ids": [
+    "CVE-2026-124757"
+   ],
+   "releases": [
+    {
+     "codename": "stonking",
+     "version": "26.10",
+     "support_tag": ""
+    },
+    {
+     "codename": "resolute",
+     "version": "26.04",
+     "support_tag": "LTS"
+    },
+    {
+     "codename": "noble",
+     "version": "24.04",
+     "support_tag": "LTS"
+    },
+    {
+     "codename": "jammy",
+     "version": "22.04",
+     "support_tag": "LTS"
+    },
+    {
+     "codename": "focal",
+     "version": "20.04",
+     "support_tag": "ESM"
+    },
+    {
+     "codename": "bionic",
+     "version": "18.04",
+     "support_tag": "ESM"
+    },
+    {
+     "codename": "xenial",
+     "version": "16.04",
+     "support_tag": "ESM"
+    }
+   ],
+   "related_notices": []
+  }
+ ],
+ "offset": 0,
+ "limit": 20,
+ "total_results": 1701
+}

@@ -48,6 +48,17 @@ and this project adheres to [Semantic Versioning 2.0.0](https://semver.org/spec/
   CVE, CWE, affected and fixed versions and a description excerpt.
   `GITHUB_TOKEN` is used when set, and only for `https://api.github.com`.
   Implemented in `internal/phpsec`.
+- `digest watch` can alert on Ubuntu and Debian security advisories for
+  the software your servers run (`internal/distrosec`). Opt-in per distro
+  through `[ubuntu_security] packages` / `[debian_security] packages`:
+  Ubuntu Security Notices for the configured release (default `noble`,
+  24.04 LTS) and Debian Security Advisories (packages such as `php8.4`
+  select Debian 13). An advisory is posted when it touches a watched
+  source package and is not limited to local attackers, judged per issue
+  paragraph from the advisory wording. Posts flag remotely exploitable
+  issues and show impact, CVEs, the fixed version and the update command.
+  Advisories older than 7 days are ignored; there is no first-run
+  baseline. `config-check` shows whether each source is enabled.
 - Both PHP sources run in the same hourly run as the Go source and seed on
   their first run: the current state is recorded as the baseline and one
   "now tracked" notice is posted per source. Optional `[php] releases_url`

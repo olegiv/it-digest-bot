@@ -183,6 +183,11 @@ All non-secret settings live in `config.toml`. See [`config.example.toml`](./con
 | `[apple_releases]` | `feed_url`    | no       | `https://developer.apple.com/news/releases/rss/releases.rss` | Override only; same rules as `drupal_security.feed_url` |
 | `[php]`           | `releases_url` | no       | `https://www.php.net/releases/active.php` | Override only; same rules as `drupal_security.feed_url` |
 | `[php]`           | `advisories_url` | no     | `https://api.github.com/repos/php/php-src/security-advisories` | Override only; same rules as `drupal_security.feed_url`; `GITHUB_TOKEN` is sent only to `https://api.github.com` |
+| `[ubuntu_security]` | `packages`   | no       | — (disabled)             | Source packages to watch (`nginx`, `openssl`, `php8.3`, …); the Ubuntu source runs only when set |
+| `[ubuntu_security]` | `release`    | no       | `noble`                  | Ubuntu release codename (`noble` = 24.04 LTS) |
+| `[ubuntu_security]` | `notices_url` | no      | `https://ubuntu.com/security/notices.json` | Override only; same rules as `drupal_security.feed_url` |
+| `[debian_security]` | `packages`   | no       | — (disabled)             | Source packages to watch (`php8.4`, `postgresql-17`, …); the Debian source runs only when set |
+| `[debian_security]` | `feed_url`   | no       | `https://www.debian.org/security/dsa-long.rdf` | Override only; same rules as `drupal_security.feed_url` |
 | `[llm]`           | `model`        | phase 2  | —                       | Recommended: `claude-sonnet-5-5`; must be set explicitly |
 | `[llm]`           | `max_tokens`   | phase 2  | —                       | Recommended: `2048`; must be set explicitly |
 | `[llm]`           | `timeout_seconds` | no    | `120`                   | Per-request Anthropic timeout |
@@ -224,6 +229,13 @@ PHP is tracked by two always-on sources that run in the same hourly `digest watc
 - **Security advisories** (`releases_seen` package `php-security`, keyed by GHSA ID): the PHP project publishes its advisories as GitHub security advisories on `php/php-src`. Each new published, non-withdrawn advisory is posted with severity and CVSS score, CVE, CWE, affected and fixed versions, and the first paragraph of the description. One unauthenticated request per hour fits GitHub's 60 requests/hour limit; `GITHUB_TOKEN` raises it.
 
 Both PHP sources seed on their first run, like Drupal: the current branch tips and the published advisories are recorded as the baseline and one "now tracked" notice is posted per source.
+
+Ubuntu and Debian security advisories are opt-in and meant for the software your web servers run. Each source runs only when its `packages` list is set in `[ubuntu_security]` / `[debian_security]`:
+
+- **Ubuntu** (`releases_seen` package `usn-<release>`): Ubuntu Security Notices for the configured release (`noble` = 24.04 LTS) from `https://ubuntu.com/security/notices.json`, newest 40 per run.
+- **Debian** (package `dsa`): Debian Security Advisories from `https://www.debian.org/security/dsa-long.rdf`. Package names select the release (`php8.4`, `postgresql-17` on Debian 13).
+
+An advisory is posted when it touches a watched source package and its description does not limit every issue to local attackers. Neither feed carries CVSS vectors or priorities, so exposure is read from the security teams' consistent wording ("A remote attacker could …", "A local user can …"), judged per issue paragraph. Posts mark remotely exploitable issues and show the likely impact (code execution, privilege escalation, information disclosure, denial of service, …), CVEs, the fixed version (Ubuntu), whether the fix needs Ubuntu Pro, and the update command. Advisories older than 7 days are ignored, so enabling a source or adding a package posts at most last week's advisories; there is no first-run baseline, because a filtered list is often empty and a baseline would swallow the first real alert. Posts are generic advisories, but they do show which software you watch.
 
 Secrets come from the environment only (never the TOML):
 
@@ -292,6 +304,7 @@ Test coverage targets (spec): ≥ 70% on `internal/claudecode`, `internal/telegr
 | news              | ~91%     |
 | phprelease        | ~98%     |
 | phpsec            | ~96%     |
+| distrosec         | ~94%     |
 | releasewatch      | ~89%     |
 | store             | ~78%     |
 | telegram          | ~79%     |

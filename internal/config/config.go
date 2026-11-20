@@ -8,6 +8,7 @@ import (
 	"net"
 	"net/url"
 	"os"
+	"regexp"
 	"strings"
 
 	"github.com/BurntSushi/toml"
@@ -27,6 +28,8 @@ type Config struct {
 	DrupalSecurity DrupalSecurityConfig `toml:"drupal_security"`
 	AppleReleases  AppleReleasesConfig  `toml:"apple_releases"`
 	PHP            PHPConfig            `toml:"php"`
+	UbuntuSecurity UbuntuSecurityConfig `toml:"ubuntu_security"`
+	DebianSecurity DebianSecurityConfig `toml:"debian_security"`
 	LLM            LLMConfig            `toml:"llm"`
 	Log            LogConfig            `toml:"log"`
 	Digest         DigestConfig         `toml:"digest"`
@@ -77,6 +80,38 @@ type PHPConfig struct {
 	ReleasesURL   string `toml:"releases_url"`
 	AdvisoriesURL string `toml:"advisories_url"`
 }
+
+// UbuntuSecurityConfig enables Ubuntu Security Notice alerts in
+// `digest watch`. The source runs only when Packages is non-empty: notices
+// of Release that touch one of these source packages (e.g. "nginx",
+// "openssl", "php8.3") and are not limited to local attackers are posted.
+// NoticesURL overrides the API endpoint, with the same rules as
+// DrupalSecurityConfig.FeedURL.
+type UbuntuSecurityConfig struct {
+	Release    string   `toml:"release"`
+	Packages   []string `toml:"packages"`
+	NoticesURL string   `toml:"notices_url"`
+}
+
+// DefaultUbuntuRelease is Ubuntu 24.04 LTS.
+const DefaultUbuntuRelease = "noble"
+
+// DebianSecurityConfig enables Debian Security Advisory alerts in
+// `digest watch`, like UbuntuSecurityConfig: the source runs only when
+// Packages lists source packages (e.g. "php8.4", "postgresql-17" for
+// Debian 13). FeedURL overrides the DSA feed.
+type DebianSecurityConfig struct {
+	Packages []string `toml:"packages"`
+	FeedURL  string   `toml:"feed_url"`
+}
+
+// MaxWatchedPackages bounds each distro package list.
+const MaxWatchedPackages = 200
+
+var (
+	releaseCodenameRe = regexp.MustCompile(`^[a-z]{3,20}$`)
+	sourcePackageRe   = regexp.MustCompile(`^[a-z0-9][a-z0-9+.\-]{0,63}$`)
+)
 
 type LLMConfig struct {
 	Model     string `toml:"model"`
@@ -150,6 +185,14 @@ func Load(path string) (*Config, error) {
 	cfg.AppleReleases.FeedURL = strings.TrimSpace(cfg.AppleReleases.FeedURL)
 	cfg.PHP.ReleasesURL = strings.TrimSpace(cfg.PHP.ReleasesURL)
 	cfg.PHP.AdvisoriesURL = strings.TrimSpace(cfg.PHP.AdvisoriesURL)
+	cfg.UbuntuSecurity.Release = strings.TrimSpace(cfg.UbuntuSecurity.Release)
+	if cfg.UbuntuSecurity.Release == "" {
+		cfg.UbuntuSecurity.Release = DefaultUbuntuRelease
+	}
+	cfg.UbuntuSecurity.NoticesURL = strings.TrimSpace(cfg.UbuntuSecurity.NoticesURL)
+	cfg.UbuntuSecurity.Packages = trimList(cfg.UbuntuSecurity.Packages)
+	cfg.DebianSecurity.FeedURL = strings.TrimSpace(cfg.DebianSecurity.FeedURL)
+	cfg.DebianSecurity.Packages = trimList(cfg.DebianSecurity.Packages)
 
 	if cfg.Digest.MaxPerSource == 0 {
 		cfg.Digest.MaxPerSource = DefaultMaxPerSource
@@ -209,6 +252,17 @@ func (c *Config) Validate() error {
 	if err := validateFeedURL("php.advisories_url", c.PHP.AdvisoriesURL); err != nil {
 		errs = append(errs, err.Error())
 	}
+	if c.UbuntuSecurity.Release != "" && !releaseCodenameRe.MatchString(c.UbuntuSecurity.Release) {
+		errs = append(errs, fmt.Sprintf("ubuntu_security.release %q is not an Ubuntu codename (e.g. \"noble\")", c.UbuntuSecurity.Release))
+	}
+	errs = append(errs, validatePackages("ubuntu_security.packages", c.UbuntuSecurity.Packages)...)
+	if err := validateFeedURL("ubuntu_security.notices_url", c.UbuntuSecurity.NoticesURL); err != nil {
+		errs = append(errs, err.Error())
+	}
+	errs = append(errs, validatePackages("debian_security.packages", c.DebianSecurity.Packages)...)
+	if err := validateFeedURL("debian_security.feed_url", c.DebianSecurity.FeedURL); err != nil {
+		errs = append(errs, err.Error())
+	}
 	if len(errs) > 0 {
 		return errors.New("invalid config: " + strings.Join(errs, "; "))
 	}
@@ -247,6 +301,31 @@ func validateFeedURL(key, raw string) error {
 		return nil
 	}
 	return fmt.Errorf("%s must use https (plain http is only allowed for localhost)", key)
+}
+
+// validatePackages checks a watched source-package list.
+func validatePackages(key string, pkgs []string) []string {
+	var errs []string
+	if len(pkgs) > MaxWatchedPackages {
+		errs = append(errs, fmt.Sprintf("%s lists %d packages (max %d)", key, len(pkgs), MaxWatchedPackages))
+	}
+	for _, p := range pkgs {
+		if !sourcePackageRe.MatchString(p) {
+			errs = append(errs, fmt.Sprintf("%s: %q is not a source package name", key, p))
+		}
+	}
+	return errs
+}
+
+// trimList trims entries and drops empty ones.
+func trimList(in []string) []string {
+	var out []string
+	for _, s := range in {
+		if s = strings.TrimSpace(s); s != "" {
+			out = append(out, s)
+		}
+	}
+	return out
 }
 
 // ValidateForDaily adds phase-2-specific checks on top of Validate.
