@@ -77,6 +77,6 @@ cat <<EOF
 
 Deploy complete. Next scheduled fire picks up the new binary and units.
 To force an immediate run:
-  ssh $HOST 'systemctl start it-digest-watch.service'
-  ssh $HOST 'systemctl start it-digest-daily.service'
+  ssh "$HOST" 'systemctl start it-digest-watch.service'
+  ssh "$HOST" 'systemctl start it-digest-daily.service'
 EOF

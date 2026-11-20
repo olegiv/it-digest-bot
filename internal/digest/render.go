@@ -3,6 +3,7 @@ package digest
 import (
 	"fmt"
 	"log/slog"
+	"net/url"
 	"strings"
 	"time"
 
@@ -36,7 +37,7 @@ func RenderAndSplit(
 	}
 
 	header := fmt.Sprintf("🗞 *Daily AI Digest* — %s\n\n",
-		telegram.EscapeMarkdownV2(date.Format("January 2")))
+		telegram.EscapeMarkdownV2Plain(date.Format("January 2")))
 	footer := "\n\n\\#AI \\#DailyDigest"
 
 	return packGroups(header, footer, groups, maxBytes), nil
@@ -76,19 +77,47 @@ func buildGroups(items []news.Item, summaries []llm.Summary, log *slog.Logger) [
 	for _, src := range sourceOrder {
 		entries := bySource[src]
 		var b strings.Builder
-		fmt.Fprintf(&b, "*%s*\n", telegram.EscapeMarkdownV2(src))
+		fmt.Fprintf(&b, "*%s*\n", plain(src))
 		articles := make([]news.Item, 0, len(entries))
 		for _, e := range entries {
-			headline := strs.FirstNonEmpty(e.summary.Headline, e.item.Title)
-			fmt.Fprintf(&b, "• [%s](%s) — %s\n",
-				telegram.EscapeMarkdownV2(headline),
-				telegram.EscapeMarkdownV2URL(e.item.URL),
-				telegram.EscapeMarkdownV2(e.summary.Blurb))
+			headline := plain(strs.FirstNonEmpty(
+				telegram.CleanText(e.summary.Headline), telegram.CleanText(e.item.Title)))
+			if u, ok := articleURL(e.item.URL); ok {
+				fmt.Fprintf(&b, "• [%s](%s)", headline, telegram.EscapeMarkdownV2URL(u))
+			} else {
+				fmt.Fprintf(&b, "• %s", headline)
+			}
+			if blurb := plain(e.summary.Blurb); blurb != "" {
+				fmt.Fprintf(&b, " — %s", blurb)
+			}
+			b.WriteString("\n")
 			articles = append(articles, e.item)
 		}
 		out = append(out, group{source: src, body: b.String(), articles: articles})
 	}
 	return out
+}
+
+// plain renders text that came from a feed or from the model as literal
+// MarkdownV2: it is cleaned (telegram.CleanText) and every special character
+// is escaped. Feed content is untrusted and reaches the model, so a prompt
+// injection could otherwise make the model emit a live [text](url) link,
+// code span or formatting that the digest would post to the channel. The
+// only link in an entry is the article's own URL (see articleURL).
+func plain(s string) string {
+	return telegram.EscapeMarkdownV2Plain(telegram.CleanText(s))
+}
+
+// articleURL returns the item URL when it is an absolute http(s) URL with a
+// host, the only kind the digest renders as a link. Anything else (a
+// relative path, javascript:, tg:, data: …) leaves the headline unlinked.
+func articleURL(raw string) (string, bool) {
+	raw = strings.TrimSpace(raw)
+	u, err := url.Parse(raw)
+	if err != nil || u.Host == "" || (u.Scheme != "https" && u.Scheme != "http") {
+		return "", false
+	}
+	return raw, true
 }
 
 func packGroups(header, footer string, groups []group, maxBytes int) []Message {

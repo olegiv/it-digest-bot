@@ -122,13 +122,13 @@ func vulnerabilityLines(vulns []Vulnerability) []string {
 // Excerpt returns the first prose paragraph of a GitHub advisory
 // description: markdown headings ("### Summary"), fenced code and empty lines
 // are skipped, inline emphasis and code markers are dropped, control and
-// Unicode format characters are removed (see cleanText) and whitespace is
+// Unicode format characters are removed (see telegram.CleanText) and whitespace is
 // collapsed. The result is plain text that still needs escaping.
 func Excerpt(desc string) string {
 	var para []string
 	inFence := false
 	for line := range strings.SplitSeq(strings.ReplaceAll(desc, "\r\n", "\n"), "\n") {
-		trimmed := cleanText(line)
+		trimmed := telegram.CleanText(line)
 		if strings.HasPrefix(trimmed, "```") || strings.HasPrefix(trimmed, "~~~") {
 			inFence = !inFence
 			if len(para) > 0 {

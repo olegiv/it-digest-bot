@@ -17,10 +17,10 @@ import (
 	"strconv"
 	"strings"
 	"time"
-	"unicode"
 	"unicode/utf8"
 
 	"github.com/olegiv/it-digest-bot/internal/httpx"
+	"github.com/olegiv/it-digest-bot/internal/telegram"
 )
 
 const (
@@ -236,7 +236,7 @@ func ParseAdvisories(body []byte) ([]Advisory, []string, error) {
 func toAdvisory(id string, g *ghAdvisory) Advisory {
 	a := Advisory{
 		ID:       id,
-		Summary:  clip(cleanText(g.Summary), maxSummaryBytes),
+		Summary:  clip(telegram.CleanText(g.Summary), maxSummaryBytes),
 		Severity: normalizeSeverity(deref(g.Severity)),
 		Score:    score(g),
 		Link:     advisoryLink(id, g.HTMLURL),
@@ -258,11 +258,11 @@ func toAdvisory(id string, g *ghAdvisory) Advisory {
 			break
 		}
 		vuln := Vulnerability{
-			Vulnerable: clip(cleanText(deref(v.VulnerableVersionRange)), 128),
-			Patched:    clip(cleanText(deref(v.PatchedVersions)), 128),
+			Vulnerable: clip(telegram.CleanText(deref(v.VulnerableVersionRange)), 128),
+			Patched:    clip(telegram.CleanText(deref(v.PatchedVersions)), 128),
 		}
 		if v.Package != nil {
-			vuln.Package = clip(cleanText(v.Package.Name), 64)
+			vuln.Package = clip(telegram.CleanText(v.Package.Name), 64)
 		}
 		if vuln != (Vulnerability{}) {
 			a.Vulnerabilities = append(a.Vulnerabilities, vuln)
@@ -321,27 +321,6 @@ func deref(s *string) string {
 		return ""
 	}
 	return *s
-}
-
-// cleanText makes untrusted advisory text safe to render on one line: C0/C1
-// control characters (ESC, NUL, BEL, newlines) become spaces, Unicode format
-// characters (bidi overrides such as U+202E, zero-width characters, BOM) are
-// dropped, and whitespace runs collapse to one space. Control characters
-// would otherwise reach terminals through --dry-run output, and Telegram
-// can reject a message carrying them, failing every run until upstream
-// changes; bidi overrides can make a post read differently than it is.
-func cleanText(s string) string {
-	s = strings.Map(func(r rune) rune {
-		switch {
-		case unicode.IsControl(r):
-			return ' '
-		case unicode.Is(unicode.Cf, r):
-			return -1
-		default:
-			return r
-		}
-	}, s)
-	return strings.Join(strings.Fields(s), " ")
 }
 
 // clip cuts s to at most n bytes on a rune boundary.

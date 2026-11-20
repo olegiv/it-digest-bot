@@ -231,7 +231,7 @@ Secrets come from the environment only (never the TOML):
 |------------------------|-----------|---------|
 | `TELEGRAM_BOT_TOKEN`   | yes       | Any command that posts to Telegram |
 | `ANTHROPIC_API_KEY`    | yes (daily) | `digest daily` (phase 2) |
-| `GITHUB_TOKEN`         | optional  | Raises GitHub rate limit from 60→5000 req/hour; `public_repo` scope is enough |
+| `GITHUB_TOKEN`         | optional  | Raises GitHub rate limit from 60→5000 req/hour. Only public data is read: a fine-grained token with read-only public repository access and no permissions is enough. Sent only to `api.github.com` |
 
 ## Roadmap
 

@@ -71,5 +71,5 @@ REMOTE
 cat <<EOF
 
 To fully purge (destroys config + DB):
-  ssh $HOST 'rm -rf /etc/it-digest /var/lib/it-digest'
+  ssh "$HOST" 'rm -rf /etc/it-digest /var/lib/it-digest'
 EOF

@@ -23,6 +23,7 @@ import (
 	"golang.org/x/net/html/atom"
 
 	"github.com/olegiv/it-digest-bot/internal/httpx"
+	"github.com/olegiv/it-digest-bot/internal/telegram"
 )
 
 const (
@@ -193,7 +194,7 @@ func ParseFeed(data []byte) ([]Advisory, []string, error) {
 	for i, item := range feed.Items {
 		guid := strings.TrimSpace(item.GUID)
 		link := strings.TrimSpace(item.Link)
-		title := strings.TrimSpace(item.Title)
+		title := telegram.CleanText(item.Title)
 		switch {
 		case guid == "":
 			warnings = append(warnings, fmt.Sprintf("item %d (%q) skipped: missing guid", i, title))
@@ -252,10 +253,7 @@ var (
 	riskRe       = regexp.MustCompile(`^(.+?)\s+(\d+)\s*[/∕]\s*(\d+)\s+(\S+)$`)
 	cveRe        = regexp.MustCompile(`\bCVE-\d{4}-\d{4,}\b`)
 	projectHref  = regexp.MustCompile(`href="/project/([A-Za-z0-9_\-]+)"`)
-	// \p{Zs} covers NBSP and the THIN SPACE drupal.org puts around the
-	// risk score's division slash.
-	spaceRunRe = regexp.MustCompile(`[\p{Zs}\t\r\f\v]+`)
-	digitsRe   = regexp.MustCompile(`^\d+`)
+	digitsRe     = regexp.MustCompile(`^\d+`)
 )
 
 func parseItem(item *gofeed.Item, guid, link, title string) Advisory {
@@ -458,7 +456,7 @@ func htmlToText(fragment string, bullets bool) string {
 
 	var out []string
 	for line := range strings.SplitSeq(sb.String(), "\n") {
-		line = strings.TrimSpace(spaceRunRe.ReplaceAllString(line, " "))
+		line = telegram.CleanText(line)
 		if line == "" || (bullets && line == "•") {
 			continue
 		}

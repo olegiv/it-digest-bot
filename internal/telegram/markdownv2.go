@@ -88,8 +88,10 @@ func EscapeMarkdownV2(s string) string {
 // preserves nothing: backticks, `[text](url)` links and fences all come out
 // inert. Use it for text from untrusted upstreams (RSS feeds, scraped HTML)
 // where a link or code span in the input must never become live markup in
-// the channel; keep EscapeMarkdownV2 for prose that is meant to carry those
-// constructs, such as LLM-rendered digest summaries.
+// the channel. That includes LLM output derived from such text, like the
+// daily digest's headlines and blurbs. Keep EscapeMarkdownV2 for prose from
+// trusted upstreams that is meant to carry those constructs, such as
+// official release notes.
 func EscapeMarkdownV2Plain(s string) string {
 	var b strings.Builder
 	b.Grow(len(s) + len(s)/8)

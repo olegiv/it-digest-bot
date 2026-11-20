@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning 2.0.0](https://semver.org/spec/
 
 ## [Unreleased]
 
+### Changed
+
+- Dependencies: `golang.org/x/net` v0.63.0, `golang.org/x/sync` v0.25.0,
+  `modernc.org/sqlite` v1.62.0 (with `modernc.org/libc` v1.82.2,
+  `modernc.org/memory` v1.13.0), `golang.org/x/sys` v0.50.0,
+  `golang.org/x/text` v0.44.0 and `github.com/spf13/pflag` v1.1.0. Routine
+  updates; govulncheck reported nothing for the previous versions.
+- `GITHUB_TOKEN` documentation: only public data is read, so a
+  fine-grained token with no permissions is enough (`public_repo` is not
+  needed).
+- Deploy scripts quote the SSH host in every `ssh` call.
+
 ### Added
 
 - `digest watch` now posts PHP releases from php.net
@@ -47,6 +59,25 @@ and this project adheres to [Semantic Versioning 2.0.0](https://semver.org/spec/
   cannot become a second record of `8.5.1`, and a response listing more
   than 32 branches is treated as broken instead of producing a burst of
   posts.
+- Daily digest: feed titles, source names and the model's headlines and
+  blurbs are now rendered as plain text. Previously links, code spans and
+  formatting in them stayed live, so a prompt injection in a feed item
+  could make the model post an arbitrary link to the channel. Each entry
+  keeps exactly one link, to the article itself, and only when its URL is
+  an absolute `http(s)` URL; anything else (`javascript:`, `tg:`, relative
+  paths) leaves the headline unlinked.
+- New `telegram.CleanText` removes control characters and Unicode format
+  characters (bidi overrides, zero-width characters) from untrusted text.
+  It is now used for PHP advisories, Drupal advisories (title, description,
+  solution and fields: HTML character references such as `&#x1b;` decoded
+  to real control characters), Go release-history text and the daily
+  digest.
+- `it-digest-daily.service` sets `TimeoutStartSec=30min`, so a hung digest
+  run is stopped and reported through the failure alert. Re-run
+  `deploy/install.sh` (or `make deploy`) to install the updated units.
+- GitHub Actions are pinned to full commit SHAs (`actions/checkout`
+  v6.1.0, `actions/setup-go` v6.5.0, `golangci/golangci-lint-action`
+  v9.3.0) instead of movable tags.
 - `golang.org/x/net` updated to `v0.62.0` (with `golang.org/x/sync`
   `v0.24.0`, `golang.org/x/sys` `v0.49.0` and `golang.org/x/text`
   `v0.43.0`), fixing two `x/net/html` vulnerabilities reachable from the

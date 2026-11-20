@@ -347,21 +347,6 @@ func TestParseAdvisoriesStripsControlAndBidi(t *testing.T) {
 	}
 }
 
-func TestCleanText(t *testing.T) {
-	t.Parallel()
-	for _, tc := range []struct{ in, want string }{
-		{"  plain   text ", "plain text"},
-		{"a\tb\r\nc\x00d", "a b c d"},
-		{"e\u0301", "e\u0301"}, // combining marks (Mn) are kept
-		{"\u200d\u2060\u00ad", ""},
-		{"日本語", "日本語"},
-	} {
-		if got := cleanText(tc.in); got != tc.want {
-			t.Errorf("cleanText(%q) = %q, want %q", tc.in, got, tc.want)
-		}
-	}
-}
-
 // TestClientDropsTokenOnCrossHostRedirect: if api.github.com (or something
 // impersonating it on the path) redirects elsewhere, the token must not
 // follow. net/http strips Authorization on a redirect to a host that is not

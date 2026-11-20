@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode"
 
 	"github.com/olegiv/it-digest-bot/internal/httpx"
 )
@@ -535,5 +536,32 @@ func TestNewClientDefaults(t *testing.T) {
 	}
 	if c.SetFeedURL("  ").FeedURL() != DefaultFeedURL {
 		t.Error("blank override must keep the default")
+	}
+}
+
+// TestParseFeedStripsControlAndFormatRunes: the description is HTML inside
+// the RSS item, so a numeric character reference such as &#x1b; decodes to a
+// real ESC. Control and bidi/zero-width characters must not survive into
+// any field that reaches a post or the dry-run terminal output.
+func TestParseFeedStripsControlAndFormatRunes(t *testing.T) {
+	t.Parallel()
+	item := `<item>
+<title>Evil&#x202E; module - Critical - Access bypass - SA-CONTRIB-2026-901</title>
+<link>https://www.drupal.org/sa-contrib-2026-901</link>
+<description>&lt;div class="field field-name-field-sa-description"&gt;&lt;div class="field-items"&gt;&lt;p&gt;Bad&amp;#x1b;]8;;https://evil.example&amp;#x7; text&amp;#x200b;here&lt;/p&gt;&lt;/div&gt;&lt;/div&gt;` +
+		`&lt;div class="field field-name-field-sa-solution"&gt;&lt;div class="field-items"&gt;&lt;ul&gt;&lt;li&gt;Upgrade&amp;#x1; now&amp;#xfeff;&lt;/li&gt;&lt;/ul&gt;&lt;/div&gt;&lt;/div&gt;</description>
+<pubDate>Wed, 23 Sep 2026 17:24:33 +0000</pubDate>
+<guid isPermaLink="false">8000901 at https://www.drupal.org</guid>
+</item>`
+	a := findByID(t, parseOK(t, feedWith(item)), "SA-CONTRIB-2026-901")
+	assertEq(t, "title", a.Title, "Evil module - Critical - Access bypass - SA-CONTRIB-2026-901")
+	assertEq(t, "description", a.Description, "Bad ]8;;https://evil.example texthere")
+	assertEq(t, "solution", a.Solution, "• Upgrade now")
+
+	post := FormatAdvisory(a)
+	for _, r := range post {
+		if (r < 0x20 && r != '\n') || (r >= 0x7f && r <= 0x9f) || unicode.Is(unicode.Cf, r) {
+			t.Fatalf("post contains control/format rune %U:\n%q", r, post)
+		}
 	}
 }

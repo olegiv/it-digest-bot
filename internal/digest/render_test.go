@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode"
 
 	"github.com/olegiv/it-digest-bot/internal/llm"
 	"github.com/olegiv/it-digest-bot/internal/news"
@@ -159,5 +160,99 @@ func TestRenderEmptyReturnsNoMessages(t *testing.T) {
 	}
 	if len(msgs) != 0 {
 		t.Errorf("got %d messages, want 0 for empty input", len(msgs))
+	}
+}
+
+// TestRenderTreatsFeedAndModelTextAsPlain: feed titles and model output are
+// untrusted (a feed item can carry a prompt injection), so links, code spans
+// and formatting in them must come out inert. The only live link per entry is
+// the article URL.
+func TestRenderTreatsFeedAndModelTextAsPlain(t *testing.T) {
+	t.Parallel()
+	items := []news.Item{
+		{Source: "Feed [x](https://evil.example)", Title: "t", URL: "https://example.com/a"},
+		{Source: "Feed", Title: "*bold* [phish](https://evil.example)", URL: "https://example.com/b"},
+	}
+	summaries := []llm.Summary{
+		{SourceIndex: 0, Headline: "Read `this` [now](https://evil.example)", Blurb: "Click [here](tg://resolve?domain=evil) ||spoiler|| _it_"},
+		{SourceIndex: 1, Headline: "", Blurb: ""},
+	}
+	msgs, err := RenderAndSplit(testDate, items, summaries, 4096, nil)
+	if err != nil || len(msgs) != 1 {
+		t.Fatalf("RenderAndSplit: %d messages, %v", len(msgs), err)
+	}
+	text := msgs[0].Text
+	for _, bad := range []string{"[x](", "[now](", "[here](", "[phish](", "`this`", "||spoiler||", "*bold*"} {
+		if strings.Contains(text, bad) {
+			t.Errorf("live markup %q leaked:\n%s", bad, text)
+		}
+	}
+	for _, want := range []string{
+		"*Feed \\[x\\]\\(https://evil\\.example\\)*\n",
+		"• [Read \\`this\\` \\[now\\]\\(https://evil\\.example\\)](https://example.com/a) — Click \\[here\\]",
+		"• [\\*bold\\* \\[phish\\]\\(https://evil\\.example\\)](https://example.com/b)\n",
+	} {
+		if !strings.Contains(text, want) {
+			t.Errorf("missing %q in:\n%s", want, text)
+		}
+	}
+	if strings.Count(text, "](https://example.com/") != 2 || strings.Count(text, "](") != 2 {
+		t.Errorf("want exactly the two article links:\n%s", text)
+	}
+}
+
+func TestRenderLinksOnlyHTTPArticleURLs(t *testing.T) {
+	t.Parallel()
+	urls := []string{
+		"https://example.com/ok",
+		"http://example.com/ok",
+		"javascript:alert(1)",
+		"tg://resolve?domain=evil",
+		"/relative/path",
+		"https:///no-host",
+		"data:text/html,x",
+		"%zz",
+	}
+	items := make([]news.Item, len(urls))
+	summaries := make([]llm.Summary, len(urls))
+	for i, u := range urls {
+		items[i] = news.Item{Source: "S", Title: "t", URL: u}
+		summaries[i] = llm.Summary{SourceIndex: i, Headline: "h" + string(rune('a'+i)), Blurb: "b"}
+	}
+	msgs, err := RenderAndSplit(testDate, items, summaries, 4096, nil)
+	if err != nil || len(msgs) != 1 {
+		t.Fatalf("RenderAndSplit: %d messages, %v", len(msgs), err)
+	}
+	text := msgs[0].Text
+	if !strings.Contains(text, "• [ha](https://example.com/ok) — b") || !strings.Contains(text, "• [hb](http://example.com/ok) — b") {
+		t.Errorf("http(s) URLs must stay linked:\n%s", text)
+	}
+	for i := 2; i < len(urls); i++ {
+		want := "• h" + string(rune('a'+i)) + " — b\n"
+		if !strings.Contains(text, want) {
+			t.Errorf("%q must render unlinked (%q):\n%s", urls[i], want, text)
+		}
+	}
+	if len(msgs[0].Articles) != len(urls) {
+		t.Errorf("unlinked entries must still be recorded as posted: %d", len(msgs[0].Articles))
+	}
+}
+
+func TestRenderStripsControlAndFormatRunes(t *testing.T) {
+	t.Parallel()
+	items := []news.Item{{Source: "S\u202e", Title: "t", URL: "https://example.com/a"}}
+	summaries := []llm.Summary{{SourceIndex: 0, Headline: "Big\x1b[2J news\u200b", Blurb: "Line\none\x00two\u202e"}}
+	msgs, err := RenderAndSplit(testDate, items, summaries, 4096, nil)
+	if err != nil || len(msgs) != 1 {
+		t.Fatalf("RenderAndSplit: %d messages, %v", len(msgs), err)
+	}
+	text := msgs[0].Text
+	if !strings.Contains(text, "• [Big \\[2J news](https://example.com/a) — Line one two\n") {
+		t.Errorf("unexpected entry:\n%q", text)
+	}
+	for _, r := range text {
+		if (r < 0x20 && r != '\n') || (r >= 0x7f && r <= 0x9f) || unicode.Is(unicode.Cf, r) {
+			t.Fatalf("digest contains control/format rune %U:\n%q", r, text)
+		}
 	}
 }
