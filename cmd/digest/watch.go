@@ -12,6 +12,8 @@ import (
 	"github.com/olegiv/it-digest-bot/internal/drupalsec"
 	"github.com/olegiv/it-digest-bot/internal/gorelease"
 	"github.com/olegiv/it-digest-bot/internal/httpx"
+	"github.com/olegiv/it-digest-bot/internal/phprelease"
+	"github.com/olegiv/it-digest-bot/internal/phpsec"
 	"github.com/olegiv/it-digest-bot/internal/releasewatch"
 	"github.com/olegiv/it-digest-bot/internal/store"
 	"github.com/olegiv/it-digest-bot/internal/telegram"
@@ -21,7 +23,7 @@ func newWatchCmd(flags *rootFlags) *cobra.Command {
 	var dryRun bool
 	cmd := &cobra.Command{
 		Use:   "watch",
-		Short: "Check Claude Code, Go, iOS/macOS and Drupal security releases and post them",
+		Short: "Check Claude Code, Go, PHP, iOS/macOS releases plus Drupal and PHP security advisories and post them",
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			ctx := cmd.Context()
 			cfg, log, err := loadConfigAndLogger(flags.configPath, "watch")
@@ -52,6 +54,8 @@ func newWatchCmd(flags *rootFlags) *cobra.Command {
 					Logger:     log,
 				},
 				gorelease.NewSource(apiHTTP),
+				phpReleaseSource(cfg, apiHTTP, log),
+				phpSecuritySource(cfg, apiHTTP, log),
 				drupalSecuritySource(cfg, apiHTTP, log),
 			}
 			for _, p := range applerelease.Platforms {
@@ -104,6 +108,25 @@ func drupalSecuritySource(cfg *config.Config, h *httpx.Client, log *slog.Logger)
 func appleReleaseSource(cfg *config.Config, h *httpx.Client, log *slog.Logger, p applerelease.Platform) *applerelease.Source {
 	src := applerelease.NewSource(h, p)
 	src.Client.SetFeedURL(cfg.AppleReleases.FeedURL)
+	src.Logger = log
+	return src
+}
+
+// phpReleaseSource wires the php.net release source, honouring the optional
+// endpoint override from config.
+func phpReleaseSource(cfg *config.Config, h *httpx.Client, log *slog.Logger) *phprelease.Source {
+	src := phprelease.NewSource(h)
+	src.Client.SetActiveURL(cfg.PHP.ReleasesURL)
+	src.Logger = log
+	return src
+}
+
+// phpSecuritySource wires the PHP security advisory source, honouring the
+// optional endpoint override from config. The client sends GITHUB_TOKEN only
+// to api.github.com.
+func phpSecuritySource(cfg *config.Config, h *httpx.Client, log *slog.Logger) *phpsec.Source {
+	src := phpsec.NewSource(h, cfg.ClaudeCode.GitHubToken)
+	src.Client.SetAPIURL(cfg.PHP.AdvisoriesURL)
 	src.Logger = log
 	return src
 }

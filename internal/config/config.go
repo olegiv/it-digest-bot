@@ -26,6 +26,7 @@ type Config struct {
 	ClaudeCode     ClaudeCodeConfig     `toml:"claudecode"`
 	DrupalSecurity DrupalSecurityConfig `toml:"drupal_security"`
 	AppleReleases  AppleReleasesConfig  `toml:"apple_releases"`
+	PHP            PHPConfig            `toml:"php"`
 	LLM            LLMConfig            `toml:"llm"`
 	Log            LogConfig            `toml:"log"`
 	Digest         DigestConfig         `toml:"digest"`
@@ -64,6 +65,17 @@ type DrupalSecurityConfig struct {
 // same rules as DrupalSecurityConfig.FeedURL.
 type AppleReleasesConfig struct {
 	FeedURL string `toml:"feed_url"`
+}
+
+// PHPConfig tunes the PHP release and PHP security advisory sources of
+// `digest watch`. Both sources are always on; the settings only override the
+// php.net active-branches endpoint and the GitHub php/php-src security
+// advisories endpoint (empty = the built-in defaults), with the same rules
+// as DrupalSecurityConfig.FeedURL. GITHUB_TOKEN is sent to the advisories
+// endpoint only when it is https://api.github.com.
+type PHPConfig struct {
+	ReleasesURL   string `toml:"releases_url"`
+	AdvisoriesURL string `toml:"advisories_url"`
 }
 
 type LLMConfig struct {
@@ -136,6 +148,8 @@ func Load(path string) (*Config, error) {
 	// same value; a padded URL would otherwise fail url.Parse confusingly.
 	cfg.DrupalSecurity.FeedURL = strings.TrimSpace(cfg.DrupalSecurity.FeedURL)
 	cfg.AppleReleases.FeedURL = strings.TrimSpace(cfg.AppleReleases.FeedURL)
+	cfg.PHP.ReleasesURL = strings.TrimSpace(cfg.PHP.ReleasesURL)
+	cfg.PHP.AdvisoriesURL = strings.TrimSpace(cfg.PHP.AdvisoriesURL)
 
 	if cfg.Digest.MaxPerSource == 0 {
 		cfg.Digest.MaxPerSource = DefaultMaxPerSource
@@ -187,6 +201,12 @@ func (c *Config) Validate() error {
 		errs = append(errs, err.Error())
 	}
 	if err := validateFeedURL("apple_releases.feed_url", c.AppleReleases.FeedURL); err != nil {
+		errs = append(errs, err.Error())
+	}
+	if err := validateFeedURL("php.releases_url", c.PHP.ReleasesURL); err != nil {
+		errs = append(errs, err.Error())
+	}
+	if err := validateFeedURL("php.advisories_url", c.PHP.AdvisoriesURL); err != nil {
 		errs = append(errs, err.Error())
 	}
 	if len(errs) > 0 {

@@ -266,3 +266,38 @@ func TestLoadAppleReleasesFeedURL(t *testing.T) {
 		t.Errorf("unknown key: err = %v", err)
 	}
 }
+
+func TestLoadPHPURLs(t *testing.T) {
+	t.Setenv(EnvTelegramBotToken, "tg-stub")
+
+	cfg, err := Load(writeConfig(t, validTOML))
+	if err != nil {
+		t.Fatalf("Load default: %v", err)
+	}
+	if cfg.PHP.ReleasesURL != "" || cfg.PHP.AdvisoriesURL != "" {
+		t.Errorf("default php urls = %q/%q, want empty", cfg.PHP.ReleasesURL, cfg.PHP.AdvisoriesURL)
+	}
+
+	cfg, err = Load(writeConfig(t, validTOML+"\n[php]\nreleases_url = \" http://localhost:8080/active.json \"\nadvisories_url = \"https://ghe.example.com/api/v3/repos/php/php-src/security-advisories\"\n"))
+	if err != nil {
+		t.Fatalf("Load overrides: %v", err)
+	}
+	if cfg.PHP.ReleasesURL != "http://localhost:8080/active.json" {
+		t.Errorf("releases_url = %q, want trimmed override", cfg.PHP.ReleasesURL)
+	}
+	if cfg.PHP.AdvisoriesURL != "https://ghe.example.com/api/v3/repos/php/php-src/security-advisories" {
+		t.Errorf("advisories_url = %q", cfg.PHP.AdvisoriesURL)
+	}
+
+	for _, tc := range []struct{ toml, want string }{
+		{"releases_url = \"http://example.org/active.php\"", "php.releases_url must use https"},
+		{"advisories_url = \"https://api.github.com/repos/php/php-src/security-advisories?per_page=1\"", "php.advisories_url must not contain a query string"},
+		{"advisories_url = \"https://user:pw@api.github.com/x\"", "php.advisories_url must not contain credentials"},
+		{"enabled = true", "unknown config keys"},
+	} {
+		_, err = Load(writeConfig(t, validTOML+"\n[php]\n"+tc.toml+"\n"))
+		if err == nil || !strings.Contains(err.Error(), tc.want) {
+			t.Errorf("%s: err = %v, want %q", tc.toml, err, tc.want)
+		}
+	}
+}

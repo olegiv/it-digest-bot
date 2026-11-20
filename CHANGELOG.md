@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning 2.0.0](https://semver.org/spec/
 
 ## [Unreleased]
 
+### Added
+
+- `digest watch` now posts PHP releases from php.net
+  (`https://www.php.net/releases/active.php`): the latest release of every
+  supported branch, recorded in `releases_seen` under package `php`. Posts
+  show whether the release opens a new branch, updates the current branch
+  or an older one, mark releases php.net tags as `security`, and link the
+  announcement, ChangeLog and downloads. Implemented in
+  `internal/phprelease`.
+- `digest watch` now posts PHP security advisories, which the PHP project
+  publishes as GitHub security advisories on `php/php-src`. Each new
+  published, non-withdrawn advisory is recorded under package
+  `php-security` (keyed by GHSA ID) and posted with severity, CVSS score,
+  CVE, CWE, affected and fixed versions and a description excerpt.
+  `GITHUB_TOKEN` is used when set, and only for `https://api.github.com`.
+  Implemented in `internal/phpsec`.
+- Both PHP sources run in the same hourly run as the Go source and seed on
+  their first run: the current state is recorded as the baseline and one
+  "now tracked" notice is posted per source. Optional `[php] releases_url`
+  and `advisories_url` overrides follow the existing feed URL rules and are
+  printed by `digest config-check`.
+
 ### Security
 
 - `golang.org/x/net` updated to `v0.62.0` (with `golang.org/x/sync`
