@@ -37,7 +37,7 @@ func RenderAndSplit(
 	}
 
 	header := fmt.Sprintf("🗞 *Daily AI Digest* — %s\n\n",
-		telegram.EscapeMarkdownV2Plain(date.Format("January 2")))
+		telegram.EscapeMarkdownV2(date.Format("January 2")))
 	footer := "\n\n\\#AI \\#DailyDigest"
 
 	return packGroups(header, footer, groups, maxBytes), nil
@@ -77,20 +77,19 @@ func buildGroups(items []news.Item, summaries []llm.Summary, log *slog.Logger) [
 	for _, src := range sourceOrder {
 		entries := bySource[src]
 		var b strings.Builder
-		fmt.Fprintf(&b, "*%s*\n", plain(src))
+		fmt.Fprintf(&b, "*%s*\n", telegram.EscapeMarkdownV2(telegram.CleanText(src)))
 		articles := make([]news.Item, 0, len(entries))
 		for _, e := range entries {
-			headline := plain(strs.FirstNonEmpty(
-				telegram.CleanText(e.summary.Headline), telegram.CleanText(e.item.Title)))
-			if u, ok := articleURL(e.item.URL); ok {
-				fmt.Fprintf(&b, "• [%s](%s)", headline, telegram.EscapeMarkdownV2URL(u))
+			headline := strs.FirstNonEmpty(
+				telegram.CleanText(e.summary.Headline), telegram.CleanText(e.item.Title))
+			u, ok := articleURL(e.item.URL)
+			if ok {
+				fmt.Fprintf(&b, "• [%s](%s)", telegram.EscapeMarkdownV2LinkText(headline), telegram.EscapeMarkdownV2URL(strings.TrimSpace(e.item.URL)))
 			} else {
-				fmt.Fprintf(&b, "• %s", headline)
+				fmt.Fprintf(&b, "• %s", telegram.EscapeMarkdownV2Links(headline, nil))
 			}
-			if blurb := plain(e.summary.Blurb); blurb != "" {
-				fmt.Fprintf(&b, " — %s", blurb)
-			}
-			b.WriteString("\n")
+			fmt.Fprintf(&b, " — %s\n",
+				telegram.EscapeMarkdownV2Links(telegram.CleanText(e.summary.Blurb), sameHost(u)))
 			articles = append(articles, e.item)
 		}
 		out = append(out, group{source: src, body: b.String(), articles: articles})
@@ -98,26 +97,41 @@ func buildGroups(items []news.Item, summaries []llm.Summary, log *slog.Logger) [
 	return out
 }
 
-// plain renders text that came from a feed or from the model as literal
-// MarkdownV2: it is cleaned (telegram.CleanText) and every special character
-// is escaped. Feed content is untrusted and reaches the model, so a prompt
-// injection could otherwise make the model emit a live [text](url) link,
-// code span or formatting that the digest would post to the channel. The
-// only link in an entry is the article's own URL (see articleURL).
-func plain(s string) string {
-	return telegram.EscapeMarkdownV2Plain(telegram.CleanText(s))
+// articleURL parses the item URL and accepts it only as an absolute
+// http(s) URL with a host and no userinfo. Anything else (a relative path,
+// javascript:, tg:, data: …) leaves the headline unlinked and allows no
+// links in the blurb.
+func articleURL(raw string) (*url.URL, bool) {
+	u, err := url.Parse(strings.TrimSpace(raw))
+	if err != nil || !isWebURL(u) {
+		return nil, false
+	}
+	return u, true
 }
 
-// articleURL returns the item URL when it is an absolute http(s) URL with a
-// host, the only kind the digest renders as a link. Anything else (a
-// relative path, javascript:, tg:, data: …) leaves the headline unlinked.
-func articleURL(raw string) (string, bool) {
-	raw = strings.TrimSpace(raw)
-	u, err := url.Parse(raw)
-	if err != nil || u.Host == "" || (u.Scheme != "https" && u.Scheme != "http") {
-		return "", false
+// sameHost returns the digest's link policy for one entry: feed items and
+// the model's summaries of them are untrusted (a prompt injection in a feed
+// item could make the model emit any link), so a link in the blurb stays
+// live only when it is an http(s) URL on the article's own host. "www." is
+// ignored on both sides; other subdomains count as different hosts. With
+// no valid article URL every link is rejected.
+func sameHost(article *url.URL) func(string) bool {
+	if article == nil {
+		return nil
 	}
-	return raw, true
+	want := canonicalHost(article)
+	return func(raw string) bool {
+		u, err := url.Parse(raw)
+		return err == nil && isWebURL(u) && canonicalHost(u) == want
+	}
+}
+
+func isWebURL(u *url.URL) bool {
+	return (u.Scheme == "https" || u.Scheme == "http") && u.Hostname() != "" && u.User == nil
+}
+
+func canonicalHost(u *url.URL) string {
+	return strings.TrimPrefix(strings.TrimSuffix(strings.ToLower(u.Hostname()), "."), "www.")
 }
 
 func packGroups(header, footer string, groups []group, maxBytes int) []Message {

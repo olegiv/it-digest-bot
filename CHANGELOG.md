@@ -59,13 +59,16 @@ and this project adheres to [Semantic Versioning 2.0.0](https://semver.org/spec/
   cannot become a second record of `8.5.1`, and a response listing more
   than 32 branches is treated as broken instead of producing a burst of
   posts.
-- Daily digest: feed titles, source names and the model's headlines and
-  blurbs are now rendered as plain text. Previously links, code spans and
-  formatting in them stayed live, so a prompt injection in a feed item
-  could make the model post an arbitrary link to the channel. Each entry
-  keeps exactly one link, to the article itself, and only when its URL is
-  an absolute `http(s)` URL; anything else (`javascript:`, `tg:`, relative
-  paths) leaves the headline unlinked.
+- Daily digest: links in the model's blurbs stay live only when they point
+  at the article's own host (`www.` ignored; other subdomains, other hosts,
+  `javascript:`, relative and userinfo URLs are not). Other links keep only
+  their text, and bare `http(s)://` URLs to other hosts, which Telegram
+  would auto-link, are removed. Previously any link survived, so a prompt
+  injection in a feed item could make the model post an arbitrary link to
+  the channel. Code spans and formatting render as before. Links inside the
+  headline become text, since the headline already links to the article
+  and Telegram rejects nested links. The article link itself is used only
+  when the item URL is an absolute `http(s)` URL.
 - New `telegram.CleanText` removes control characters and Unicode format
   characters (bidi overrides, zero-width characters) from untrusted text.
   It is now used for PHP advisories, Drupal advisories (title, description,

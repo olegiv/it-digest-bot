@@ -163,41 +163,59 @@ func TestRenderEmptyReturnsNoMessages(t *testing.T) {
 	}
 }
 
-// TestRenderTreatsFeedAndModelTextAsPlain: feed titles and model output are
-// untrusted (a feed item can carry a prompt injection), so links, code spans
-// and formatting in them must come out inert. The only live link per entry is
-// the article URL.
-func TestRenderTreatsFeedAndModelTextAsPlain(t *testing.T) {
+// TestRenderKeepsOnlySameHostLinks: feed items and the model's summaries of
+// them are untrusted, so a link in a blurb stays live only when it points at
+// the article's own host. Other links keep their text; bare URLs to other
+// hosts (which Telegram would auto-link) are dropped. Code spans and other
+// markup keep working as before.
+func TestRenderKeepsOnlySameHostLinks(t *testing.T) {
 	t.Parallel()
-	items := []news.Item{
-		{Source: "Feed [x](https://evil.example)", Title: "t", URL: "https://example.com/a"},
-		{Source: "Feed", Title: "*bold* [phish](https://evil.example)", URL: "https://example.com/b"},
-	}
-	summaries := []llm.Summary{
-		{SourceIndex: 0, Headline: "Read `this` [now](https://evil.example)", Blurb: "Click [here](tg://resolve?domain=evil) ||spoiler|| _it_"},
-		{SourceIndex: 1, Headline: "", Blurb: ""},
-	}
+	items := []news.Item{{Source: "OpenAI", Title: "t", URL: "https://www.openai.com/news/a"}}
+	summaries := []llm.Summary{{
+		SourceIndex: 0,
+		Headline:    "New `gpt` [model](https://openai.com/x)",
+		Blurb: "See [docs](https://openai.com/docs), [blog](http://WWW.OpenAI.com./blog) and `code`; " +
+			"[phish](https://evil.example/login), [sub](https://evil.openai.com/x), " +
+			"[trick](https://openai.com@evil.example/), [js](javascript:alert(1)), " +
+			"[rel](/relative). Bare https://evil.example/x, kept https://openai.com/y.",
+	}}
 	msgs, err := RenderAndSplit(testDate, items, summaries, 4096, nil)
 	if err != nil || len(msgs) != 1 {
 		t.Fatalf("RenderAndSplit: %d messages, %v", len(msgs), err)
 	}
 	text := msgs[0].Text
-	for _, bad := range []string{"[x](", "[now](", "[here](", "[phish](", "`this`", "||spoiler||", "*bold*"} {
-		if strings.Contains(text, bad) {
-			t.Errorf("live markup %q leaked:\n%s", bad, text)
-		}
-	}
 	for _, want := range []string{
-		"*Feed \\[x\\]\\(https://evil\\.example\\)*\n",
-		"• [Read \\`this\\` \\[now\\]\\(https://evil\\.example\\)](https://example.com/a) — Click \\[here\\]",
-		"• [\\*bold\\* \\[phish\\]\\(https://evil\\.example\\)](https://example.com/b)\n",
+		// Headline sits inside the article link: its own link becomes text, code stays.
+		"• [New `gpt` model](https://www.openai.com/news/a) — ",
+		"See [docs](https://openai.com/docs), [blog](http://WWW.OpenAI.com./blog) and `code`; ",
+		// The link grammar ends at the first ')', so "javascript:alert(1)"
+		// leaves a literal, escaped ')'.
+		"phish, sub, trick, js\\), rel\\. Bare , kept https://openai\\.com/y\\.",
 	} {
 		if !strings.Contains(text, want) {
 			t.Errorf("missing %q in:\n%s", want, text)
 		}
 	}
-	if strings.Count(text, "](https://example.com/") != 2 || strings.Count(text, "](") != 2 {
-		t.Errorf("want exactly the two article links:\n%s", text)
+	for _, bad := range []string{"evil", "javascript", "/relative"} {
+		if strings.Contains(text, bad) {
+			t.Errorf("off-host target %q leaked:\n%s", bad, text)
+		}
+	}
+	if n := strings.Count(text, "]("); n != 3 {
+		t.Errorf("want 3 live links (article, docs, blog), got %d:\n%s", n, text)
+	}
+}
+
+func TestRenderAllowsNoBlurbLinksWithoutArticleURL(t *testing.T) {
+	t.Parallel()
+	items := []news.Item{{Source: "S", Title: "t", URL: "javascript:alert(1)"}}
+	summaries := []llm.Summary{{SourceIndex: 0, Headline: "H [x](https://a.example/)", Blurb: "[y](https://a.example/) https://a.example/z"}}
+	msgs, err := RenderAndSplit(testDate, items, summaries, 4096, nil)
+	if err != nil || len(msgs) != 1 {
+		t.Fatalf("RenderAndSplit: %d messages, %v", len(msgs), err)
+	}
+	if !strings.Contains(msgs[0].Text, "• H x — y \n") || strings.Contains(msgs[0].Text, "](") {
+		t.Errorf("no link may survive without a valid article URL:\n%s", msgs[0].Text)
 	}
 }
 

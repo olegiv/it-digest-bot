@@ -63,7 +63,7 @@ Both flows share `internal/store` (SQLite via `modernc.org/sqlite`, no CGO), `in
 - `internal/digest` — phase 2 orchestrator + `render.go` (MarkdownV2 layout + chunk splitter).
 - `internal/news` — feed fetch (`gofeed`) + canonical URL hashing.
 - `internal/llm` — `Summarizer` interface (`anthropic.go` is the prod impl, mockable in tests).
-- `internal/telegram` — Bot client + `markdownv2.go` escape helpers (Telegram MarkdownV2 escaping is fiddly; use these helpers, do not hand-escape) + `cleantext.go`. Text from any upstream (feeds, scraped HTML, APIs, LLM output) goes through `CleanText` (drops control and bidi/zero-width characters, collapses whitespace) and then `EscapeMarkdownV2Plain`, so it can never become live markup; `EscapeMarkdownV2` is only for trusted release-note prose. The daily digest renders headlines and blurbs as plain text; its only link per entry is the article's own `http(s)` URL.
+- `internal/telegram` — Bot client + `markdownv2.go` escape helpers (Telegram MarkdownV2 escaping is fiddly; use these helpers, do not hand-escape) + `cleantext.go`. Text from any upstream (feeds, scraped HTML, APIs, LLM output) goes through `CleanText` (drops control and bidi/zero-width characters, collapses whitespace) and then `EscapeMarkdownV2Plain`, so it can never become live markup; `EscapeMarkdownV2` is only for trusted release-note prose. The daily digest is the exception: headlines and blurbs keep their formatting via `EscapeMarkdownV2Links`, whose link policy (`digest.sameHost`) keeps a link live only when it points at the article's own host, and drops off-host bare URLs.
 - `internal/store` — `Releases`, `Articles`, `Posts` repositories on `*sql.DB`.
 - `internal/config` — TOML loader; secrets are **never** read from TOML.
 

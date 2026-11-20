@@ -27,7 +27,41 @@ var mdv2Specials = [128]bool{
 // apply.
 //
 // An unmatched backtick or `[` is escaped as literal.
-func EscapeMarkdownV2(s string) string {
+func EscapeMarkdownV2(s string) string { return escapeMarkdownV2(s, nil, false) }
+
+// EscapeMarkdownV2Links is EscapeMarkdownV2 with a link policy, for prose
+// derived from untrusted input (feed items and the model's summaries of
+// them). Code spans, fences and the regular escaping work as in
+// EscapeMarkdownV2, but:
+//
+//   - a [text](url) link stays live only when allow(url) reports true;
+//     otherwise only its text is kept, escaped by the same rules;
+//   - a bare http:// or https:// URL outside code spans and links, which
+//     Telegram clients turn into a link on their own, is dropped unless
+//     allow(url) reports true;
+//   - links inside a kept link's text become plain text (Telegram rejects
+//     nested links).
+//
+// A nil allow rejects every link. Bare domain names without a scheme
+// ("example.com") are left as text; Telegram clients may still link them.
+func EscapeMarkdownV2Links(s string, allow func(url string) bool) string {
+	if allow == nil {
+		allow = denyLinks
+	}
+	return escapeMarkdownV2(s, allow, true)
+}
+
+// EscapeMarkdownV2LinkText escapes s for use as the text of a [text](url)
+// link: like EscapeMarkdownV2, but links inside it become plain text,
+// because Telegram rejects nested links.
+func EscapeMarkdownV2LinkText(s string) string { return escapeMarkdownV2(s, denyLinks, false) }
+
+func denyLinks(string) bool { return false }
+
+// escapeMarkdownV2 implements the EscapeMarkdownV2 family. allow == nil
+// keeps every link (EscapeMarkdownV2); otherwise links are filtered through
+// it, and dropBare also removes bare http(s) URLs it rejects.
+func escapeMarkdownV2(s string, allow func(string) bool, dropBare bool) string {
 	var b strings.Builder
 	b.Grow(len(s) + len(s)/8)
 
@@ -64,12 +98,35 @@ func EscapeMarkdownV2(s string) string {
 				i++
 				continue
 			}
+			if allow != nil && !allow(url) {
+				// Keep what the reader saw, drop where it pointed.
+				b.WriteString(escapeMarkdownV2(text, allow, dropBare))
+				i = next
+				continue
+			}
 			b.WriteByte('[')
-			b.WriteString(EscapeMarkdownV2(text))
+			if allow != nil {
+				b.WriteString(escapeMarkdownV2(text, denyLinks, false))
+			} else {
+				b.WriteString(EscapeMarkdownV2(text))
+			}
 			b.WriteString("](")
 			writeURLBody(&b, url)
 			b.WriteByte(')')
 			i = next
+
+		case dropBare && isBareURLStart(s, i):
+			end := bareURLEnd(s, i)
+			if !allow(s[i:end]) {
+				i = end
+				continue
+			}
+			for ; i < end; i++ {
+				if c := s[i]; c < 128 && mdv2Specials[c] {
+					b.WriteByte('\\')
+				}
+				b.WriteByte(s[i])
+			}
 
 		default:
 			c := s[i]
@@ -88,9 +145,9 @@ func EscapeMarkdownV2(s string) string {
 // preserves nothing: backticks, `[text](url)` links and fences all come out
 // inert. Use it for text from untrusted upstreams (RSS feeds, scraped HTML)
 // where a link or code span in the input must never become live markup in
-// the channel. That includes LLM output derived from such text, like the
-// daily digest's headlines and blurbs. Keep EscapeMarkdownV2 for prose from
-// trusted upstreams that is meant to carry those constructs, such as
+// the channel. For LLM output derived from such text that should keep its
+// formatting (the daily digest), use EscapeMarkdownV2Links with a link
+// policy. Keep EscapeMarkdownV2 for prose from trusted upstreams, such as
 // official release notes.
 func EscapeMarkdownV2Plain(s string) string {
 	var b strings.Builder
@@ -120,6 +177,42 @@ func EscapeMarkdownV2URL(s string) string {
 	b.Grow(len(s) + 4)
 	writeURLBody(&b, s)
 	return b.String()
+}
+
+// isBareURLStart reports whether a bare http:// or https:// URL starts at
+// s[i]: the scheme matched case-insensitively, not preceded by a letter,
+// digit, '_' or '/', and followed by at least one URL character.
+func isBareURLStart(s string, i int) bool {
+	if i > 0 {
+		if p := s[i-1]; p == '/' || p == '_' || ('0' <= p && p <= '9') || ('a' <= p && p <= 'z') || ('A' <= p && p <= 'Z') {
+			return false
+		}
+	}
+	rest := s[i:]
+	for _, scheme := range [...]string{"http://", "https://"} {
+		if len(rest) > len(scheme) && strings.EqualFold(rest[:len(scheme)], scheme) &&
+			!strings.ContainsRune(bareURLStop, rune(rest[len(scheme)])) {
+			return true
+		}
+	}
+	return false
+}
+
+// bareURLStop delimits an auto-detected link.
+const bareURLStop = " \t\n\r\"'`<>"
+
+// bareURLEnd returns the end of the bare URL starting at s[i]: it runs to
+// whitespace, a quote, a backtick or angle bracket, minus trailing sentence
+// punctuation, the way Telegram clients delimit an auto-detected link.
+func bareURLEnd(s string, i int) int {
+	end := i
+	for end < len(s) && !strings.ContainsRune(bareURLStop, rune(s[end])) {
+		end++
+	}
+	for end > i && strings.ContainsRune(".,;:!?)]}", rune(s[end-1])) {
+		end--
+	}
+	return end
 }
 
 func writeEscaped(b *strings.Builder, c byte) {
