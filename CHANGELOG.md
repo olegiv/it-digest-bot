@@ -24,6 +24,13 @@ and this project adheres to [Semantic Versioning 2.0.0](https://semver.org/spec/
   goose migrations, `OCMS_SESSION_SECRET`), and `/clean` told the agent to
   delete databases. README and CLAUDE.md document initialising the
   `.claude/shared` submodule, without which the shared hooks do not run.
+- `/commit-do` now refers to `/commit-prepare` (it named a nonexistent
+  `/prepare-commit`), stages only the reviewed files by explicit path
+  instead of `git add .`, and passes the message to `git commit -F` via a
+  `mktemp` file so it never goes through the shell.
+- Removed the unused `.claude/hooks/setup-go-toolchain.sh`, which ran
+  `rm -rf /usr/local/go` and installed an unverified tarball from a
+  predictable `/tmp` path.
 
 ### Added
 
