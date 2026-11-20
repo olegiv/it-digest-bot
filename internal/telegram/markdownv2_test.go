@@ -248,7 +248,7 @@ func TestEscapeMarkdownV2Links(t *testing.T) {
 		{"go HTTPS://bad.example/p now", "go  now"},
 		{"go https://ok.example/p_1. now", "go https://ok\\.example/p\\_1\\. now"},
 		{"(https://bad.example/x)", "\\(\\)"},
-		{"xhttps://bad.example/ and /https://bad.example/", "xhttps://bad\\.example/ and /https://bad\\.example/"},
+		{"xhttps://bad.example/ and /https://bad.example/", " and /"},
 		{"https:// alone", "https:// alone"},
 		{"*bold* _it_", "\\*bold\\* \\_it\\_"},
 	} {

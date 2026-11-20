@@ -353,7 +353,10 @@ func (r *Runner) handleCandidate(ctx context.Context, cand Candidate, limitReach
 	}
 	item.MessageID = msgID
 
-	if err := r.Releases.RecordSeen(ctx, cand.Package, cand.Version, msgID, ann.ReleaseURL); err != nil {
+	// The message is out: record it even if the run is being stopped.
+	recCtx, cancel := store.AfterSend(ctx)
+	defer cancel()
+	if err := r.Releases.RecordSeen(recCtx, cand.Package, cand.Version, msgID, ann.ReleaseURL); err != nil {
 		return item, true, fmt.Errorf("record release %s %s: %w", cand.Package, cand.Version, err)
 	}
 	item.Outcome = OutcomePosted // sent and recorded; a failed record stays OutcomeError with the message id
@@ -362,7 +365,7 @@ func (r *Runner) handleCandidate(ctx context.Context, cand Candidate, limitReach
 	if err != nil {
 		return item, true, fmt.Errorf("marshal release payload %s %s: %w", cand.Package, cand.Version, err)
 	}
-	if _, err := r.Posts.Record(ctx, store.KindRelease, string(payload), msgID); err != nil {
+	if _, err := r.Posts.Record(recCtx, store.KindRelease, string(payload), msgID); err != nil {
 		log.Error("record posts_log failed; release was posted and recorded but the audit row is missing",
 			"source", cand.Source,
 			"package", cand.Package,
@@ -432,11 +435,15 @@ func (r *Runner) seedIfFirstRun(ctx context.Context, seeder Seeder, sourceName s
 	// One transaction, after the notice: a partially recorded history would
 	// make the next run skip seeding and announce every leftover item
 	// individually. See Seeder for the failure semantics.
+	// Once a notice is out, record the history even if the run is being
+	// stopped; otherwise the next run would post the notice again.
+	recCtx, cancel := store.AfterSend(ctx)
+	defer cancel()
 	rows := make([]store.SeenRelease, 0, len(cands))
 	for _, cand := range cands {
 		rows = append(rows, store.SeenRelease{Package: cand.Package, Version: cand.Version, ReleaseURL: cand.URL})
 	}
-	if err := r.Releases.RecordSeenBatch(ctx, rows, msgID); err != nil {
+	if err := r.Releases.RecordSeenBatch(recCtx, rows, msgID); err != nil {
 		if msgID != 0 {
 			log.Error("seed notice was posted but history was not recorded; the notice will be repeated on the next run",
 				"source", sourceName,
@@ -462,7 +469,7 @@ func (r *Runner) seedIfFirstRun(ctx context.Context, seeder Seeder, sourceName s
 	if err != nil {
 		return true, fmt.Errorf("marshal seed payload %s: %w", pkg, err)
 	}
-	if _, err := r.Posts.Record(ctx, store.KindSeed, string(payload), msgID); err != nil {
+	if _, err := r.Posts.Record(recCtx, store.KindSeed, string(payload), msgID); err != nil {
 		log.Error("record posts_log failed; history was recorded but the seed audit row is missing",
 			"source", sourceName,
 			"package", pkg,

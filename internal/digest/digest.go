@@ -114,8 +114,12 @@ func (b *Builder) Run(ctx context.Context) (*Result, error) {
 		}
 		log.Info("posted digest chunk",
 			"index", i+1, "of", len(messages), "message_id", mid)
-		b.recordArticles(ctx, m.Articles, log)
-		b.recordPostsLog(ctx, now, m, mid, log)
+		// The chunk is out: record it even if the run is being stopped, so
+		// the next run does not post the same articles again.
+		recCtx, cancel := store.AfterSend(ctx)
+		b.recordArticles(recCtx, m.Articles, log)
+		b.recordPostsLog(recCtx, now, m, mid, log)
+		cancel()
 	}
 	return res, nil
 }

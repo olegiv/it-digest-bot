@@ -8,6 +8,7 @@ import (
 
 	"github.com/olegiv/it-digest-bot/internal/llm"
 	"github.com/olegiv/it-digest-bot/internal/news"
+	"github.com/olegiv/it-digest-bot/internal/telegram"
 )
 
 var testDate = time.Date(2026, 4, 18, 8, 0, 0, 0, time.UTC)
@@ -272,5 +273,155 @@ func TestRenderStripsControlAndFormatRunes(t *testing.T) {
 		if (r < 0x20 && r != '\n') || (r >= 0x7f && r <= 0x9f) || unicode.Is(unicode.Cf, r) {
 			t.Fatalf("digest contains control/format rune %U:\n%q", r, text)
 		}
+	}
+}
+
+// TestRenderBoundsOversizedModelOutput: the 280-character limit is only in
+// the prompt. A prompt injection that makes the model write kilobytes per
+// entry must not produce a message Telegram rejects as too long.
+func TestRenderBoundsOversizedModelOutput(t *testing.T) {
+	t.Parallel()
+	var items []news.Item
+	var summaries []llm.Summary
+	for i := range 3 {
+		items = append(items, news.Item{Source: "Same", Title: "t", URL: "https://example.com/" + string(rune('a'+i))})
+		summaries = append(summaries, llm.Summary{
+			SourceIndex: i,
+			Headline:    strings.Repeat("H.", 3000),
+			Blurb:       strings.Repeat("é.[x](y) ", 2000),
+		})
+	}
+	msgs, err := RenderAndSplit(testDate, items, summaries, 4096, nil)
+	if err != nil {
+		t.Fatalf("RenderAndSplit: %v", err)
+	}
+	articles := 0
+	for i, m := range msgs {
+		if len(m.Text) > 4096 {
+			t.Errorf("message %d is %d bytes", i+1, len(m.Text))
+		}
+		if !strings.Contains(m.Text, "*Same*\n") {
+			t.Errorf("message %d lacks the repeated source line:\n%s", i+1, m.Text)
+		}
+		articles += len(m.Articles)
+	}
+	if articles != 3 {
+		t.Errorf("articles = %d, want all 3 entries kept (capped, not dropped)", articles)
+	}
+	if !strings.Contains(msgs[0].Text, "…") {
+		t.Error("capped text must end with an ellipsis")
+	}
+}
+
+// TestRenderSplitsLargeGroupByEntry: one source whose entries together
+// exceed a message is split across messages, each repeating the source.
+func TestRenderSplitsLargeGroupByEntry(t *testing.T) {
+	t.Parallel()
+	var items []news.Item
+	var summaries []llm.Summary
+	for i := range 4 {
+		items = append(items, news.Item{Source: "Big", Title: "t", URL: "https://example.com/" + string(rune('a'+i))})
+		summaries = append(summaries, llm.Summary{SourceIndex: i, Headline: "h", Blurb: strings.Repeat("b", 200)})
+	}
+	msgs, err := RenderAndSplit(testDate, items, summaries, 600, nil)
+	if err != nil {
+		t.Fatalf("RenderAndSplit: %v", err)
+	}
+	if len(msgs) < 2 {
+		t.Fatalf("messages = %d, want a split", len(msgs))
+	}
+	articles := 0
+	for i, m := range msgs {
+		if len(m.Text) > 600 {
+			t.Errorf("message %d is %d bytes", i+1, len(m.Text))
+		}
+		if strings.Count(m.Text, "*Big*\n") != 1 {
+			t.Errorf("message %d should carry the source line once:\n%s", i+1, m.Text)
+		}
+		articles += len(m.Articles)
+	}
+	if articles != 4 {
+		t.Errorf("articles = %d, want 4", articles)
+	}
+}
+
+// TestRenderSkipsEntryThatCannotFit: with a tiny limit an entry that cannot
+// fit even alone is skipped (and not recorded) instead of failing the send.
+func TestRenderSkipsEntryThatCannotFit(t *testing.T) {
+	t.Parallel()
+	items := []news.Item{
+		{Source: "S", Title: "t", URL: "https://example.com/short"},
+		{Source: "T", Title: "t", URL: "https://example.com/long"},
+	}
+	summaries := []llm.Summary{
+		{SourceIndex: 0, Headline: "ok", Blurb: "fits"},
+		{SourceIndex: 1, Headline: "too long", Blurb: strings.Repeat("x", 600)},
+	}
+	msgs, err := RenderAndSplit(testDate, items, summaries, 300, nil)
+	if err != nil {
+		t.Fatalf("RenderAndSplit: %v", err)
+	}
+	if len(msgs) != 1 || len(msgs[0].Articles) != 1 || msgs[0].Articles[0].URL != "https://example.com/short" {
+		t.Fatalf("want only the short entry posted, got %d messages: %+v", len(msgs), msgs)
+	}
+}
+
+// TestRenderEntriesAreWellFormed is the MD-001 regression at digest level:
+// content removed by the link policy must never leave malformed MarkdownV2.
+func TestRenderEntriesAreWellFormed(t *testing.T) {
+	t.Parallel()
+	for _, blurb := range []string{
+		"``https://evil.com`x`",
+		"``[https://evil.com](https://evil.com)`x`",
+		"_https://evil.com/x_ and tg://resolve?domain=evil",
+		"[a [b](https://example.com/1)](https://example.com/2)",
+	} {
+		for _, rawURL := range []string{"https://example.com/a", "javascript:x"} {
+			items := []news.Item{{Source: "S", Title: "t", URL: rawURL}}
+			summaries := []llm.Summary{{SourceIndex: 0, Headline: blurb, Blurb: blurb}}
+			msgs, err := RenderAndSplit(testDate, items, summaries, 4096, nil)
+			if err != nil || len(msgs) != 1 {
+				t.Fatalf("RenderAndSplit: %d messages, %v", len(msgs), err)
+			}
+			entry := msgs[0].Text[strings.Index(msgs[0].Text, "• "):strings.LastIndex(msgs[0].Text, "\n\n")]
+			if !telegram.WellFormedMarkdownV2(entry) {
+				t.Errorf("url %s blurb %q: entry not well formed: %q", rawURL, blurb, entry)
+			}
+			// Off-host link targets must be gone from the blurb. Inside the
+			// headline, which is itself the article link, URL-looking text
+			// is not auto-linked and is kept as text.
+			_, blurbPart, found := strings.Cut(entry, " — ")
+			if !found {
+				t.Fatalf("entry without blurb separator: %q", entry)
+			}
+			for _, bad := range []string{"evil", "tg:"} {
+				if strings.Contains(blurbPart, bad) {
+					t.Errorf("url %s blurb %q: %q leaked: %q", rawURL, blurb, bad, blurbPart)
+				}
+			}
+		}
+	}
+}
+
+func TestRenderEntryKeepsFormattingWhenWellFormed(t *testing.T) {
+	t.Parallel()
+	item := news.Item{Source: "S", Title: "t", URL: "https://example.com/a"}
+	got := renderEntry(item, llm.Summary{Headline: "fine `code`", Blurb: "see [docs](https://example.com/d)"}, nil)
+	want := "• [fine `code`](https://example.com/a) — see [docs](https://example.com/d)\n"
+	if got != want {
+		t.Errorf("renderEntry = %q, want %q", got, want)
+	}
+}
+
+func TestTruncateText(t *testing.T) {
+	t.Parallel()
+	if got := truncateText("short", 10); got != "short" {
+		t.Errorf("no-op: %q", got)
+	}
+	if got := truncateText("abcdef ghij", 9); got != "abcdef…" {
+		t.Errorf("cut: %q", got)
+	}
+	if got := truncateText("ééééé", 6); got != "é…" {
+		t.Errorf("rune boundary: %q", got)
 	}
 }

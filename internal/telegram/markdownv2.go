@@ -24,9 +24,11 @@ var mdv2Specials = [128]bool{
 //
 // Inside a code span or fence, only ` and \ are escaped. Inside a link's
 // URL, only ) and \ are escaped. Inside a link's text, the regular rules
-// apply.
+// apply, except that a link nested in it becomes its text (Telegram rejects
+// nested links).
 //
-// An unmatched backtick or `[` is escaped as literal.
+// An unmatched backtick or `[`, and an empty code span or fence, are
+// escaped as literals.
 func EscapeMarkdownV2(s string) string { return escapeMarkdownV2(s, nil, false) }
 
 // EscapeMarkdownV2Links is EscapeMarkdownV2 with a link policy, for prose
@@ -36,19 +38,112 @@ func EscapeMarkdownV2(s string) string { return escapeMarkdownV2(s, nil, false) 
 //
 //   - a [text](url) link stays live only when allow(url) reports true;
 //     otherwise only its text is kept, escaped by the same rules;
-//   - a bare http:// or https:// URL outside code spans and links, which
-//     Telegram clients turn into a link on their own, is dropped unless
-//     allow(url) reports true;
+//   - a bare "scheme://…" token (any scheme: http, tg, ton, ftp, …) or
+//     "www.…" token outside code spans and links, which Telegram clients
+//     may turn into a link on their own, is dropped unless allow(url)
+//     reports true ("www." tokens are checked as "http://www.…");
 //   - links inside a kept link's text become plain text (Telegram rejects
 //     nested links).
 //
-// A nil allow rejects every link. Bare domain names without a scheme
-// ("example.com") are left as text; Telegram clients may still link them.
+// A nil allow rejects every link. Bare domain names without a scheme or
+// "www." ("example.com"), e-mail addresses and @mentions are left as text;
+// Telegram clients may still link them.
+//
+// Removing a link or token can glue its neighbours into a new one
+// ("tg://[evil.example](https://x)" keeps only the link text, leaving
+// "tg://evil.example"). The text is therefore filtered until nothing more
+// is removed before it is escaped; each round only removes bytes, so this
+// terminates, at worst after a number of rounds linear in len(s). Callers
+// bound the input (the digest caps blurbs at a few hundred bytes).
 func EscapeMarkdownV2Links(s string, allow func(url string) bool) string {
 	if allow == nil {
 		allow = denyLinks
 	}
+	for {
+		filtered := stripDeniedLinks(s, allow)
+		if filtered == s {
+			break
+		}
+		s = filtered
+	}
 	return escapeMarkdownV2(s, allow, true)
+}
+
+// stripDeniedLinks removes, without escaping anything, exactly what
+// escapeMarkdownV2(s, allow, true) would remove: denied [text](url) links
+// (keeping their text) and denied bare link tokens. Everything else,
+// including code spans and kept links, is copied byte for byte, using the
+// same tokenization as escapeMarkdownV2, so a string it leaves unchanged
+// loses nothing more when escaped.
+func stripDeniedLinks(s string, allow func(string) bool) string {
+	var b strings.Builder
+	b.Grow(len(s))
+	for i := 0; i < len(s); {
+		switch {
+		case strings.HasPrefix(s[i:], "```"):
+			end := strings.Index(s[i+3:], "```")
+			switch {
+			case end < 0:
+				b.WriteByte('`')
+				i++
+			case end == 0:
+				b.WriteString("``````")
+				i += 6
+			default:
+				b.WriteString(s[i : i+3+end+3])
+				i += 3 + end + 3
+			}
+
+		case s[i] == '`':
+			end := findInlineCodeEnd(s, i)
+			switch {
+			case end < 0:
+				b.WriteByte('`')
+				i++
+			case end == i+1:
+				b.WriteString("``")
+				i += 2
+			default:
+				b.WriteString(s[i : end+1])
+				i = end + 1
+			}
+
+		case s[i] == '[':
+			text, url, next, ok := matchLink(s, i)
+			switch {
+			case !ok:
+				b.WriteByte('[')
+				i++
+			case !allow(url):
+				b.WriteString(stripDeniedLinks(text, allow))
+				i = next
+			default:
+				b.WriteString(s[i:next])
+				i = next
+			}
+
+		case bareLinkAt(s, i) > i:
+			end := bareLinkAt(s, i)
+			if allowBare(s[i:end], allow) {
+				b.WriteString(s[i:end])
+			}
+			i = end
+
+		default:
+			b.WriteByte(s[i])
+			i++
+		}
+	}
+	return b.String()
+}
+
+// allowBare applies the link policy to a bare token; "www." tokens are
+// checked as "http://www.…".
+func allowBare(token string, allow func(string) bool) bool {
+	if len(token) >= 4 && strings.EqualFold(token[:4], "www.") {
+		token = "http://" + token
+	}
+	return allow(token)
 }
 
 // EscapeMarkdownV2LinkText escapes s for use as the text of a [text](url)
@@ -60,7 +155,7 @@ func denyLinks(string) bool { return false }
 
 // escapeMarkdownV2 implements the EscapeMarkdownV2 family. allow == nil
 // keeps every link (EscapeMarkdownV2); otherwise links are filtered through
-// it, and dropBare also removes bare http(s) URLs it rejects.
+// it, and dropBare also removes bare link tokens it rejects.
 func escapeMarkdownV2(s string, allow func(string) bool, dropBare bool) string {
 	var b strings.Builder
 	b.Grow(len(s) + len(s)/8)
@@ -74,6 +169,14 @@ func escapeMarkdownV2(s string, allow func(string) bool, dropBare bool) string {
 				i++
 				continue
 			}
+			if end == 0 {
+				// An empty fence is no entity; keep it as literal text.
+				for range 6 {
+					writeEscaped(&b, '`')
+				}
+				i += 6
+				continue
+			}
 			b.WriteString("```")
 			writeCodeBody(&b, s[i+3:i+3+end])
 			b.WriteString("```")
@@ -84,6 +187,15 @@ func escapeMarkdownV2(s string, allow func(string) bool, dropBare bool) string {
 			if end < 0 {
 				writeEscaped(&b, '`')
 				i++
+				continue
+			}
+			if end == i+1 {
+				// An empty span is no entity. Emitting it raw could also merge
+				// with a following span into a "```" fence opener once the
+				// link policy removes what stood between them.
+				writeEscaped(&b, '`')
+				writeEscaped(&b, '`')
+				i += 2
 				continue
 			}
 			b.WriteByte('`')
@@ -105,19 +217,15 @@ func escapeMarkdownV2(s string, allow func(string) bool, dropBare bool) string {
 				continue
 			}
 			b.WriteByte('[')
-			if allow != nil {
-				b.WriteString(escapeMarkdownV2(text, denyLinks, false))
-			} else {
-				b.WriteString(EscapeMarkdownV2(text))
-			}
+			b.WriteString(escapeMarkdownV2(text, denyLinks, false))
 			b.WriteString("](")
 			writeURLBody(&b, url)
 			b.WriteByte(')')
 			i = next
 
-		case dropBare && isBareURLStart(s, i):
-			end := bareURLEnd(s, i)
-			if !allow(s[i:end]) {
+		case dropBare && bareLinkAt(s, i) > i:
+			end := bareLinkAt(s, i)
+			if !allowBare(s[i:end], allow) {
 				i = end
 				continue
 			}
@@ -179,27 +287,61 @@ func EscapeMarkdownV2URL(s string) string {
 	return b.String()
 }
 
-// isBareURLStart reports whether a bare http:// or https:// URL starts at
-// s[i]: the scheme matched case-insensitively, not preceded by a letter,
-// digit, '_' or '/', and followed by at least one URL character.
-func isBareURLStart(s string, i int) bool {
-	if i > 0 {
-		if p := s[i-1]; p == '/' || p == '_' || ('0' <= p && p <= '9') || ('a' <= p && p <= 'z') || ('A' <= p && p <= 'Z') {
-			return false
+// bareLinkAt returns the end of a bare link token starting at s[i], or i
+// when there is none. A token is either "scheme://" followed by at least one
+// URL character, where the scheme is any run of letters, digits, '+', '-'
+// and '.' starting with a letter (matched from the first letter of the run,
+// so "xhttps://…" and "1https://…" are both caught), or "www." (any case)
+// followed by a host character. Only the start of a letter run is
+// considered: a later position in the same run ends at the same "://" and
+// is covered by the earlier attempt. A prefix directly followed by '`' or
+// '[' is a token on its own (see below).
+func bareLinkAt(s string, i int) int {
+	if !isASCIILetter(s[i]) || (i > 0 && isASCIILetter(s[i-1])) {
+		return i
+	}
+	j := i + 1
+	for j < len(s) && isSchemeChar(s[j]) {
+		j++
+	}
+	if strings.HasPrefix(s[j:], "://") && j+3 < len(s) {
+		switch next := s[j+3]; {
+		case next == '`' || next == '[':
+			// A dangling prefix right before a code span or link would
+			// read as one URL with that entity's text; take the prefix
+			// alone as the token (the policy rejects it: it has no host).
+			return j + 3
+		case !strings.ContainsRune(bareURLStop, rune(next)):
+			return bareURLEnd(s, i)
 		}
 	}
-	rest := s[i:]
-	for _, scheme := range [...]string{"http://", "https://"} {
-		if len(rest) > len(scheme) && strings.EqualFold(rest[:len(scheme)], scheme) &&
-			!strings.ContainsRune(bareURLStop, rune(rest[len(scheme)])) {
-			return true
+	if len(s)-i > 4 && strings.EqualFold(s[i:i+4], "www.") {
+		switch next := s[i+4]; {
+		case next == '`' || next == '[':
+			return i + 4
+		case isHostChar(next):
+			return bareURLEnd(s, i)
 		}
 	}
-	return false
+	return i
 }
 
-// bareURLStop delimits an auto-detected link.
-const bareURLStop = " \t\n\r\"'`<>"
+func isASCIILetter(c byte) bool { return ('a' <= c && c <= 'z') || ('A' <= c && c <= 'Z') }
+
+func isSchemeChar(c byte) bool {
+	return isASCIILetter(c) || ('0' <= c && c <= '9') || c == '+' || c == '-' || c == '.'
+}
+
+func isHostChar(c byte) bool {
+	return isASCIILetter(c) || ('0' <= c && c <= '9') || c == '-' || c >= 0x80
+}
+
+// bareURLStop delimits a bare link token: whitespace, quotes, the backtick
+// and angle brackets, and the characters that cannot appear unencoded in a
+// URL ([ ] \ { } | ^). Ending the token there means a second URL glued
+// onto an allowed one ("https://ok/p[tg://evil") is checked on its own
+// instead of being carried along as part of the allowed token.
+const bareURLStop = " \t\n\r\"'`<>[]\\{}|^"
 
 // bareURLEnd returns the end of the bare URL starting at s[i]: it runs to
 // whitespace, a quote, a backtick or angle bracket, minus trailing sentence
@@ -265,6 +407,9 @@ func matchLink(s string, start int) (text, url string, end int, ok bool) {
 	for i < len(s) && depth > 0 {
 		switch s[i] {
 		case '\\':
+			if i+1 < len(s) && s[i+1] == '\n' {
+				return "", "", 0, false // links never span lines
+			}
 			i += 2
 			continue
 		case '[':
@@ -291,6 +436,9 @@ func matchLink(s string, start int) (text, url string, end int, ok bool) {
 	for j < len(s) {
 		switch s[j] {
 		case '\\':
+			if j+1 < len(s) && s[j+1] == '\n' {
+				return "", "", 0, false // links never span lines
+			}
 			j += 2
 			continue
 		case ')':

@@ -68,7 +68,35 @@ and this project adheres to [Semantic Versioning 2.0.0](https://semver.org/spec/
   the channel. Code spans and formatting render as before. Links inside the
   headline become text, since the headline already links to the article
   and Telegram rejects nested links. The article link itself is used only
-  when the item URL is an absolute `http(s)` URL.
+  when the item URL is an absolute `http(s)` URL of at most 512 bytes.
+- Daily digest hardening:
+  - Bare link tokens of any scheme (`tg://`, `ton://`, `ftp://`, …) and
+    `www.` tokens are dropped unless they point at the article's host, also
+    when glued to a preceding word (`_https://…`, `1https://…`). A token
+    ends at characters that cannot appear unencoded in a URL, so a second
+    URL glued onto an allowed one is checked on its own.
+  - Filtering repeats until nothing more is removed, so removing a link
+    cannot glue its neighbours into a new one
+    (`tg:[//evil.example](https://x)`).
+  - Headlines are capped at 300 bytes and blurbs at 700 before escaping.
+    A source group that does not fit one message is split across messages
+    (repeating the source name), and an entry that cannot fit even alone
+    is skipped with a warning instead of failing the whole send.
+  - Every entry is checked with the new `telegram.WellFormedMarkdownV2`
+    and falls back to plain text if Telegram would reject it.
+- MarkdownV2 escaping: an empty code span or fence is emitted as literal
+  backticks, a link nested in a link's text becomes text, and a backslash
+  before a line break no longer lets a link span lines. Each of these
+  produced MarkdownV2 that Telegram rejects (for release notes, failing
+  every hourly run until the upstream text changed). Output is otherwise
+  unchanged. A fuzz test checks that every escaper yields well-formed
+  output.
+- Sent messages are recorded even when the run is being stopped (SIGTERM
+  from `systemctl stop`, a `TimeoutStartSec` expiry or a reboot). The writes
+  after a successful send now use `store.AfterSend`, a context that is not
+  cancelled with the run and is bounded to 5 seconds. Before, a stop
+  between the send and the write lost the record and the next run posted
+  the same release, seed notice or digest again.
 - New `telegram.CleanText` removes control characters and Unicode format
   characters (bidi overrides, zero-width characters) from untrusted text.
   It is now used for PHP advisories, Drupal advisories (title, description,
