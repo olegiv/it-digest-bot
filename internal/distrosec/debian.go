@@ -119,16 +119,16 @@ func ParseDebianFeed(body []byte) ([]Notice, []string, error) {
 			continue
 		}
 		seen[id] = true
-		text := htmlParagraphs(item.Description)
 		n := Notice{
 			ID:         id,
 			Distro:     DebianDistro,
 			Title:      pkg + " - " + kind,
 			Packages:   []string{pkg},
-			Paragraphs: paragraphs(text),
+			rawDesc:    item.Description,
+			rawHTML:    true,
+			rawContext: []string{title},
 			Link:       DebianTrackerURL + id,
 			Regression: strings.Contains(kind, "regression"),
-			Assessment: Assess(text, title),
 		}
 		if item.PublishedParsed != nil {
 			n.Published = item.PublishedParsed.UTC()

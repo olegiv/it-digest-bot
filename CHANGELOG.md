@@ -10,10 +10,23 @@ and this project adheres to [Semantic Versioning 2.0.0](https://semver.org/spec/
 ### Changed
 
 - Dependencies: `golang.org/x/net` v0.63.0, `golang.org/x/sync` v0.25.0,
-  `modernc.org/sqlite` v1.62.0 (with `modernc.org/libc` v1.82.2,
-  `modernc.org/memory` v1.13.0), `golang.org/x/sys` v0.50.0,
-  `golang.org/x/text` v0.44.0 and `github.com/spf13/pflag` v1.1.0. Routine
-  updates; govulncheck reported nothing for the previous versions.
+  `modernc.org/sqlite` v1.62.0 (with `modernc.org/libc` v1.80.1 and
+  `modernc.org/memory` v1.12.1, the exact versions sqlite v1.62.0
+  requires), `golang.org/x/sys` v0.50.0, `golang.org/x/text` v0.44.0 and
+  `github.com/spf13/pflag` v1.1.0. Routine updates; govulncheck reported
+  nothing for the previous versions.
+- `modernc.org/libc` and `modernc.org/memory` were briefly raised past the
+  versions `modernc.org/sqlite` is built against (libc v1.82.2 and memory
+  v1.13.0 instead of v1.80.1 and v1.12.1) by a blanket `go get -u`;
+  modernc.org/sqlite requires the exact libc version from its own go.mod.
+  They are pinned back, and `TestModerncPinnedToSQLite` now fails whenever
+  they drift.
+- Ubuntu/Debian security sources only decode the feeds; HTML-to-text,
+  paragraph cleaning and classification run for advisories that touch a
+  watched package. The Ubuntu notices response limit is 16 MiB (a page is
+  about 3 MB), and `it-digest-watch.service` sets `MemoryMax=512M` with
+  `GOMEMLIMIT=400MiB`, so a hostile or broken upstream cannot exhaust
+  the server.
 - `GITHUB_TOKEN` documentation: only public data is read, so a
   fine-grained token with no permissions is enough (`public_repo` is not
   needed).

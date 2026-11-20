@@ -25,6 +25,31 @@ type Notice struct {
 	ProOnly    bool      // Ubuntu: the fix is published only to Ubuntu Pro (ESM/FIPS) pockets
 	Regression bool      // a follow-up that fixes a regression of an earlier update
 	Assessment
+
+	// Raw advisory text, kept by the parsers so that the costly part
+	// (HTML-to-text, paragraph cleaning, Assess) runs only for advisories
+	// that touch a watched package; see Analyze.
+	rawDesc    string
+	rawHTML    bool // rawDesc is the DSA's HTML description
+	rawContext []string
+	analyzed   bool
+}
+
+// Analyze fills Paragraphs and Assessment from the advisory text the parser
+// kept. Sources call it only after the package filter, so a feed full of
+// unrelated (or hostile, oversized) advisories costs a decode and nothing
+// more. It is idempotent, and a no-op for a Notice built without raw text.
+func (n *Notice) Analyze() {
+	if n.analyzed || (n.rawDesc == "" && len(n.rawContext) == 0) {
+		return
+	}
+	n.analyzed = true
+	desc := n.rawDesc
+	if n.rawHTML {
+		desc = htmlParagraphs(desc)
+	}
+	n.Paragraphs = paragraphs(desc)
+	n.Assessment = Assess(desc, n.rawContext...)
 }
 
 var (

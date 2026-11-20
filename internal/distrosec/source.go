@@ -89,22 +89,30 @@ func (s *Source) Candidates(ctx context.Context) ([]releasewatch.Candidate, erro
 	}
 	cutoff := now().Add(-MaxAdvisoryAge)
 
-	inheritRegressionVerdicts(notices)
-
-	out := make([]releasewatch.Candidate, 0, len(notices))
-	localOnly, old := 0, 0
 	var oldest time.Time
 	for i := range notices {
 		if p := notices[i].Published; !p.IsZero() && (oldest.IsZero() || p.Before(oldest)) {
 			oldest = p
 		}
 	}
-	for i := range notices {
-		n := &notices[i]
-		matched := matchPackages(n.Packages, s.watched)
-		if len(matched) == 0 {
-			continue
+
+	// Keep only advisories for watched packages, and analyze only those.
+	// A regression follow-up and the advisory it amends cover the same
+	// package, so both survive the filter for inheritRegressionVerdicts.
+	watched := notices[:0:0]
+	for _, n := range notices {
+		if len(matchPackages(n.Packages, s.watched)) > 0 {
+			n.Analyze()
+			watched = append(watched, n)
 		}
+	}
+	inheritRegressionVerdicts(watched)
+
+	out := make([]releasewatch.Candidate, 0, len(watched))
+	localOnly, old := 0, 0
+	for i := range watched {
+		n := &watched[i]
+		matched := matchPackages(n.Packages, s.watched)
 		if !n.Published.IsZero() && n.Published.Before(cutoff) {
 			old++
 			continue
@@ -130,6 +138,7 @@ func (s *Source) Candidates(ctx context.Context) ([]releasewatch.Candidate, erro
 	log.Info("security advisories",
 		"source", s.name,
 		"fetched", len(notices),
+		"watched", len(watched),
 		"relevant", len(out),
 		"local_only", localOnly,
 		"oldest_fetched", oldest,

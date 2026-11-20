@@ -18,6 +18,13 @@ ExecStart=/usr/local/bin/digest watch --config /etc/it-digest/config.toml
 # above. A normal run takes seconds. Releases already posted are recorded,
 # so the next run continues where this one stopped.
 TimeoutStartSec=10min
+# Bound memory: a normal run needs a few tens of MB. Responses are size-
+# capped (the largest, Ubuntu's notices API, at 16 MiB), but a hostile or
+# broken upstream must not be able to exhaust the server. GOMEMLIMIT makes
+# the Go GC work harder before the hard limit is reached; exceeding
+# MemoryMax kills the run, which fires the OnFailure alert.
+Environment=GOMEMLIMIT=400MiB
+MemoryMax=512M
 StandardOutput=journal
 StandardError=journal
 

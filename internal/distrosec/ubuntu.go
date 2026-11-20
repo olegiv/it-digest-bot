@@ -34,7 +34,7 @@ const (
 
 	// maxUbuntuBody bounds one decompressed page. Kernel notices embed
 	// thousands of CVE references; a page is about 3 MB today.
-	maxUbuntuBody = 32 << 20
+	maxUbuntuBody = 16 << 20
 )
 
 var (
@@ -222,7 +222,8 @@ func ubuntuNotice(id string, raw *usnJSON, release string, refs []usnPackageRef)
 		Distro:     ubuntuLabel(raw.Releases, release),
 		Title:      cleanLine(raw.Title, 200),
 		CVEs:       validCVEs(raw.CVEIDs),
-		Paragraphs: paragraphs(raw.Description),
+		rawDesc:    raw.Description,
+		rawContext: []string{raw.Title, raw.Summary},
 		Published:  parseUbuntuTime(raw.Published),
 		Link:       UbuntuNoticePageURL + id,
 	}
@@ -257,7 +258,6 @@ func ubuntuNotice(id string, raw *usnJSON, release string, refs []usnPackageRef)
 			n.Fixed = append(n.Fixed, p+" "+v)
 		}
 	}
-	n.Assessment = Assess(raw.Description, raw.Title, raw.Summary)
 	return n
 }
 

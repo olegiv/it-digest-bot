@@ -108,6 +108,7 @@ func TestParseUbuntuNotices(t *testing.T) {
 	}
 	byID := map[string]Notice{}
 	for _, n := range notices {
+		n.Analyze()
 		byID[n.ID] = n
 		if n.Distro != "Ubuntu 24.04 LTS" || n.Link != UbuntuNoticePageURL+n.ID || n.Published.IsZero() {
 			t.Errorf("%s: distro %q link %q published %v", n.ID, n.Distro, n.Link, n.Published)
@@ -242,6 +243,7 @@ func TestParseDebianFeed(t *testing.T) {
 	}
 	byID := map[string]Notice{}
 	for _, n := range notices {
+		n.Analyze()
 		byID[n.ID] = n
 	}
 	nginx := byID["DSA-6642-1"]
@@ -397,6 +399,7 @@ func TestFormatNotice(t *testing.T) {
 			nginx = n
 		}
 	}
+	nginx.Analyze()
 	got := FormatNotice(&nginx)
 	for _, want := range []string{
 		"🔴 *Ubuntu 24\\.04 LTS security notice* — USN\\-9159\\-1\n",
@@ -615,5 +618,38 @@ func TestUndatedNoticesSortLast(t *testing.T) {
 	}
 	if strings.Join(ids, ",") != "D,C,A,B" {
 		t.Errorf("order = %v", ids)
+	}
+}
+
+// TestParsingDefersAnalysis covers DST-007: parsers only decode; the costly
+// text work runs in Analyze, which sources call after the package filter.
+func TestParsingDefersAnalysis(t *testing.T) {
+	t.Parallel()
+	notices, _, _, err := ParseUbuntuNotices(fixture(t, "ubuntu-notices-noble.json"), "noble")
+	if err != nil {
+		t.Fatal(err)
+	}
+	dsas, _, err := ParseDebianFeed(fixture(t, "debian-dsa-long.rdf"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, n := range append(notices, dsas...) {
+		if n.analyzed || len(n.Paragraphs) > 0 || n.Remote || n.LocalOnly || len(n.Impacts) > 0 {
+			t.Fatalf("%s analyzed during parsing", n.ID)
+		}
+	}
+	n := dsas[len(dsas)-1]
+	n.Analyze()
+	first := n.Paragraphs
+	n.rawDesc = "A local attacker could"
+	n.Analyze() // idempotent: the second call changes nothing
+	if len(first) == 0 || len(n.Paragraphs) != len(first) || n.LocalOnly {
+		t.Errorf("Analyze not idempotent: %+v", n)
+	}
+	// A hand-built Notice (no raw text) keeps what the caller set.
+	manual := Notice{Paragraphs: []string{"kept"}, Assessment: Assessment{Remote: true}}
+	manual.Analyze()
+	if len(manual.Paragraphs) != 1 || !manual.Remote {
+		t.Errorf("Analyze clobbered a hand-built Notice: %+v", manual)
 	}
 }
