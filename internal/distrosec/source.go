@@ -89,8 +89,16 @@ func (s *Source) Candidates(ctx context.Context) ([]releasewatch.Candidate, erro
 	}
 	cutoff := now().Add(-MaxAdvisoryAge)
 
+	inheritRegressionVerdicts(notices)
+
 	out := make([]releasewatch.Candidate, 0, len(notices))
 	localOnly, old := 0, 0
+	var oldest time.Time
+	for i := range notices {
+		if p := notices[i].Published; !p.IsZero() && (oldest.IsZero() || p.Before(oldest)) {
+			oldest = p
+		}
+	}
 	for i := range notices {
 		n := &notices[i]
 		matched := matchPackages(n.Packages, s.watched)
@@ -104,7 +112,7 @@ func (s *Source) Candidates(ctx context.Context) ([]releasewatch.Candidate, erro
 		if !Relevant(n.Assessment, matched) {
 			localOnly++
 			log.Info("security advisory skipped: local-only issue",
-				"source", s.name, "id", n.ID, "packages", matched)
+				"source", s.name, "id", n.ID, "packages", matched, "reason", n.LocalReason)
 			continue
 		}
 		n.Packages = matched
@@ -124,9 +132,34 @@ func (s *Source) Candidates(ctx context.Context) ([]releasewatch.Candidate, erro
 		"fetched", len(notices),
 		"relevant", len(out),
 		"local_only", localOnly,
+		"oldest_fetched", oldest,
 		"older_than_max_age", old,
 		"skipped", len(warnings))
 	return out, nil
+}
+
+// inheritRegressionVerdicts gives a regression follow-up without issue text
+// of its own (DSA-6637-2: "the update introduced a regression") the
+// local-only verdict of the advisory it amends, when that advisory is in the
+// same fetch. Without it, a fix for a local-only issue would be suppressed
+// while its regression follow-up is posted.
+func inheritRegressionVerdicts(notices []Notice) {
+	verdict := map[string]Assessment{}
+	for _, n := range notices {
+		if n.Described && !n.Regression {
+			verdict[baseID(n.ID)] = n.Assessment
+		}
+	}
+	for i := range notices {
+		n := &notices[i]
+		if !n.Regression || n.Described {
+			continue
+		}
+		if orig, ok := verdict[baseID(n.ID)]; ok && orig.LocalOnly {
+			n.LocalOnly = true
+			n.LocalReason = "regression follow-up of a local-only advisory: " + orig.LocalReason
+		}
+	}
 }
 
 // fixedFor keeps the "pkg version" entries of the matched packages.

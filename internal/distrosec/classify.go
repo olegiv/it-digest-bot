@@ -22,6 +22,13 @@ type Assessment struct {
 	// and nothing remote. Such notices are not announced: they cannot be
 	// used to break into a server from outside.
 	LocalOnly bool
+	// LocalReason is the first local-only issue paragraph (shortened), for
+	// the log line that records a suppressed notice.
+	LocalReason string
+	// Described is set when the description has at least one issue
+	// paragraph of its own. A regression follow-up usually has none and
+	// takes the verdict of the advisory it amends (see Source).
+	Described bool
 	// Impacts are normalized impact labels in a fixed order, e.g.
 	// "code execution", "denial of service".
 	Impacts []string
@@ -34,8 +41,25 @@ var (
 	remoteRe = regexp.MustCompile(`(?i)\bremote(ly)?\b|\bcrafted\b|\bunauthenticated\b|request smuggling|cross-site|server-side request forgery|\bSSRF\b`)
 	// issueRe marks a paragraph that describes an exploitable issue, as
 	// opposed to notes ("This update introduces the nullok option").
-	issueRe = regexp.MustCompile(`(?i)\battacker|\busers?\b|\bcould\b|\bcan (take|use|cause|exploit)|\bmay (allow|lead|result|be)|\bresult(s|ing)? in\b|\blead(s|ing)? to\b`)
-	localRe = regexp.MustCompile(`(?i)\blocal (attacker|user)s?\b|\blocally\b|\blocal privilege escalation\b`)
+	// A flaw described without naming who can reach it ("It was discovered
+	// that nginx mishandled HTTP/2 frames.") is an issue too.
+	issueRe = regexp.MustCompile(`(?i)\battacker|\busers?\b|\bcould\b|\bcan (take|use|cause|exploit)|\bmay (allow|lead|result|be)|\bresult(s|ing)? in\b|\blead(s|ing)? to\b|\bdiscovered (that|a|an|in)\b|\bincorrectly\b|\bdid not (properly|correctly)\b|\bvulnerabilit|\bflaws?\b`)
+	// localRe names local attackers only. "locally" ("credentials stored
+	// locally") and "local privilege escalation" (often one impact among
+	// remote ones) say nothing about who can reach the flaw.
+	localRe = regexp.MustCompile(`(?i)\blocal (attacker|user)s?\b`)
+	// regressionRe marks a paragraph about a regression of an earlier
+	// update; it describes no new issue.
+	regressionRe = regexp.MustCompile(`(?i)\bregression`)
+	// followUpRe marks a follow-up preamble that refers to the advisory it
+	// extends ("USN-8751-1 fixed a vulnerability in Urwid. This update
+	// provides the corresponding updates for …"); the issue itself is in the
+	// "Original advisory details" that follow.
+	followUpRe = regexp.MustCompile(`(?i)\b(USN|DSA)[- ]\d+(-\d+)?\b`)
+	// bulletRe marks a list item. Kernel notices list affected subsystems
+	// ("  - Remote Processor subsystem;"); such items are ignored unless they
+	// describe an issue themselves.
+	bulletRe = regexp.MustCompile(`^\s*[-*•]\s+`)
 
 	impactRules = []struct {
 		label string
@@ -74,6 +98,7 @@ func Assess(description string, context ...string) Assessment {
 	texts := append([]string{description}, context...)
 	for i, text := range texts {
 		for _, para := range strings.Split(strings.ReplaceAll(text, "\r\n", "\n"), "\n\n") {
+			para = dropListItems(para)
 			// Feeds wrap lines mid-phrase ("remote code\nexecution").
 			para = strings.Join(strings.Fields(para), " ")
 			if para == "" {
@@ -82,19 +107,29 @@ func Assess(description string, context ...string) Assessment {
 			all = append(all, para)
 			remote := remoteRe.MatchString(para)
 			a.Remote = a.Remote || remote
-			if i == 0 && issueRe.MatchString(para) {
+			if i == 0 && issueParagraph(para) {
 				issues++
 				if !remote && localRe.MatchString(para) {
 					localIssue++
+					if a.LocalReason == "" {
+						a.LocalReason = cleanLine(para, 200)
+					}
 				}
 			}
 		}
 	}
 	joined := strings.Join(all, " ")
+	a.Described = issues > 0
 	if issues > 0 {
 		a.LocalOnly = !a.Remote && localIssue == issues
 	} else {
 		a.LocalOnly = !a.Remote && localRe.MatchString(joined)
+		if a.LocalOnly {
+			a.LocalReason = cleanLine(joined, 200)
+		}
+	}
+	if !a.LocalOnly {
+		a.LocalReason = ""
 	}
 	for _, r := range impactRules {
 		if r.re.MatchString(joined) {
@@ -102,6 +137,33 @@ func Assess(description string, context ...string) Assessment {
 		}
 	}
 	return a
+}
+
+// issueParagraph reports whether a description paragraph describes an issue
+// of its own, as opposed to a note, a regression report or a follow-up
+// preamble that only refers to another advisory.
+func issueParagraph(para string) bool {
+	if !issueRe.MatchString(para) || regressionRe.MatchString(para) {
+		return false
+	}
+	return !followUpRe.MatchString(para) || strings.Contains(strings.ToLower(para), "attacker")
+}
+
+// dropListItems removes list-item lines that describe no issue, such as the
+// subsystem lists of kernel notices.
+func dropListItems(para string) string {
+	if !strings.Contains(para, "\n") && !bulletRe.MatchString(para) {
+		return para
+	}
+	lines := strings.Split(para, "\n")
+	kept := lines[:0]
+	for _, line := range lines {
+		if bulletRe.MatchString(line) && !issueRe.MatchString(line) {
+			continue
+		}
+		kept = append(kept, line)
+	}
+	return strings.Join(kept, "\n")
 }
 
 // Relevant reports whether a notice should be announced: it touches one of

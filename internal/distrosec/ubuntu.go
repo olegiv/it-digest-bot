@@ -104,6 +104,10 @@ func (c *UbuntuClient) Fetch(ctx context.Context) ([]Notice, []string, error) {
 				all = append(all, n)
 			}
 		}
+		if total == 0 && len(notices) > 0 {
+			warnings = append(warnings, "notices API returned no total_results; only the first page was read")
+			break
+		}
 		if (page+1)*UbuntuPageSize >= total {
 			break
 		}
@@ -242,7 +246,7 @@ func ubuntuNotice(id string, raw *usnJSON, release string, refs []usnPackageRef)
 		}
 		if ref.Pocket != "" {
 			binaries++
-			if !strings.HasPrefix(ref.Pocket, "esm") && !strings.HasPrefix(ref.Pocket, "fips") {
+			if !proPocket(ref.Pocket) {
 				proOnly = false
 			}
 		}
@@ -281,6 +285,17 @@ func parseUbuntuTime(s string) time.Time {
 		}
 	}
 	return time.Time{}
+}
+
+// proPocket reports whether an archive pocket is available only with
+// Ubuntu Pro: ESM (esm-infra, esm-apps), FIPS and the real-time kernel.
+func proPocket(pocket string) bool {
+	for _, prefix := range []string{"esm", "fips", "realtime"} {
+		if strings.HasPrefix(pocket, prefix) {
+			return true
+		}
+	}
+	return false
 }
 
 func hidden(v any) bool {

@@ -55,7 +55,10 @@ and this project adheres to [Semantic Versioning 2.0.0](https://semver.org/spec/
   24.04 LTS) and Debian Security Advisories (packages such as `php8.4`
   select Debian 13). An advisory is posted when it touches a watched
   source package and is not limited to local attackers, judged per issue
-  paragraph from the advisory wording. Posts flag remotely exploitable
+  paragraph from the advisory wording (kernel subsystem lists, regression
+  reports and follow-up preambles are not issues; a regression follow-up
+  without issue text takes the verdict of the advisory it amends; the
+  reason for every suppressed advisory is logged). Posts flag remotely exploitable
   issues and show impact, CVEs, the fixed version and the update command.
   Advisories older than 7 days are ignored; there is no first-run
   baseline. `config-check` shows whether each source is enabled.

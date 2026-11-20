@@ -321,8 +321,9 @@ func TestDebianSource(t *testing.T) {
 	for _, c := range cands {
 		ids = append(ids, c.Version)
 	}
-	// needrestart DSA-6637-1 is local-only; its regression fix -2 is kept.
-	if strings.Join(ids, ",") != "DSA-6620-1,DSA-6625-1,DSA-6637-2,DSA-6641-1,DSA-6642-1" {
+	// needrestart DSA-6637-1 is local-only, and so is its regression
+	// follow-up DSA-6637-2, which has no issue text of its own (DST-003).
+	if strings.Join(ids, ",") != "DSA-6620-1,DSA-6625-1,DSA-6641-1,DSA-6642-1" {
 		t.Errorf("candidates = %v", ids)
 	}
 }
@@ -501,5 +502,118 @@ func TestSourceDropsOldAdvisories(t *testing.T) {
 	}
 	if strings.Join(ids, ",") != "DSA-6628-1,DSA-6642-1" {
 		t.Errorf("candidates = %v", ids)
+	}
+}
+
+// TestAssessAuditFindings covers DST-001 and DST-002 from the third audit.
+func TestAssessAuditFindings(t *testing.T) {
+	t.Parallel()
+	// DST-001: real USN-9183-1 text. "Remote Processor subsystem" is a
+	// subsystem list item, not a remote attacker.
+	kernel := "Several security issues were discovered in the Linux kernel.\nAn attacker could possibly use these to compromise the system.\n" +
+		"This update corrects flaws in the following subsystems:\n  - USB Gadget drivers;\n  - Voltage and Current Regulator drivers;\n" +
+		"  - Remote Processor subsystem;\n  - RPMSG subsystem;\n  - Real Time Clock drivers;"
+	if a := Assess(kernel, "Linux kernel (FIPS) vulnerabilities", "Several security issues were fixed in the Linux kernel."); a.Remote || a.LocalOnly || !a.Described {
+		t.Errorf("kernel: %+v; want not remote, not local-only", a)
+	}
+	// A list item that does describe an issue still counts.
+	if a := Assess("Fixes:\n  - A remote attacker could crash the server;"); !a.Remote {
+		t.Errorf("issue list item: %+v; want remote", a)
+	}
+	// DST-002a: "locally" is not a local attacker.
+	if a := Assess("An attacker could possibly use this issue to read credentials stored locally."); a.LocalOnly {
+		t.Errorf("locally: %+v; want relevant", a)
+	}
+	// DST-002b: a flaw without attacker wording next to a local one.
+	if a := Assess("It was discovered that nginx mishandled HTTP/2 frames.\n\nA local attacker could escalate privileges."); a.LocalOnly {
+		t.Errorf("flaw + local paragraph: %+v; want relevant", a)
+	}
+	// "local privilege escalation" alone is an impact, not a local attacker.
+	if a := Assess("Several issues were found which could result in denial of service or local privilege escalation."); a.LocalOnly {
+		t.Errorf("impact list: %+v; want relevant", a)
+	}
+	// Still local-only, with the reason recorded for the log.
+	a := Assess("Armaan Sandhu discovered that needrestart did not properly handle cgroup paths.\nA local attacker could possibly use these\nissues to escalate privileges.")
+	if !a.LocalOnly || !strings.Contains(a.LocalReason, "A local attacker could possibly use these issues") {
+		t.Errorf("needrestart: %+v", a)
+	}
+	// USN-8751-2 (live data): a follow-up preamble referring to the
+	// original advisory is not an issue; the local original details decide.
+	urwid := "USN-8751-1 fixed a vulnerability in Urwid. This update provides the\ncorresponding updates for Ubuntu 16.04 LTS, Ubuntu 24.04 LTS, and Ubuntu\n26.10.\n\n" +
+		"Original advisory details:\n\n Katriel Moses discovered that Urwid used a weak PRNG. A local attacker\n could possibly use this issue to cause a denial of service or execute\n arbitrary code."
+	if a := Assess(urwid, "Urwid vulnerability"); !a.LocalOnly {
+		t.Errorf("urwid follow-up: %+v; want local-only", a)
+	}
+	// A regression paragraph is not an issue of its own.
+	if a := Assess("USN-8751-1 fixed vulnerabilities in urwid. The update introduced a regression. We apologize for the inconvenience."); a.Described {
+		t.Errorf("regression paragraph counted as an issue: %+v", a)
+	}
+}
+
+// TestRegressionInheritsVerdict covers DST-003 for Ubuntu-style IDs too.
+func TestRegressionInheritsVerdict(t *testing.T) {
+	t.Parallel()
+	notices := []Notice{
+		{ID: "USN-100-1", Assessment: Assessment{LocalOnly: true, Described: true, LocalReason: "A local attacker could"}},
+		{ID: "USN-100-2", Regression: true},
+		{ID: "USN-200-1", Assessment: Assessment{Remote: true, Described: true}},
+		{ID: "USN-200-2", Regression: true},
+		{ID: "USN-300-2", Regression: true},
+		{ID: "USN-400-2", Regression: true, Assessment: Assessment{Described: true}},
+	}
+	inheritRegressionVerdicts(notices)
+	want := map[string]bool{"USN-100-1": true, "USN-100-2": true, "USN-200-2": false, "USN-300-2": false, "USN-400-2": false}
+	for _, n := range notices {
+		if w, ok := want[n.ID]; ok && n.LocalOnly != w {
+			t.Errorf("%s LocalOnly = %v, want %v", n.ID, n.LocalOnly, w)
+		}
+	}
+	if !strings.HasPrefix(notices[1].LocalReason, "regression follow-up of a local-only advisory") {
+		t.Errorf("reason = %q", notices[1].LocalReason)
+	}
+	if baseID("DSA-6637-2") != "DSA-6637" || baseID("x") != "x" {
+		t.Error("baseID")
+	}
+}
+
+func TestProPocket(t *testing.T) {
+	t.Parallel()
+	for pocket, want := range map[string]bool{
+		"esm-infra": true, "esm-apps": true, "fips-updates": true, "realtime": true,
+		"security": false, "updates": false, "": false,
+	} {
+		if got := proPocket(pocket); got != want {
+			t.Errorf("proPocket(%q) = %v, want %v", pocket, got, want)
+		}
+	}
+}
+
+// TestUbuntuClientWarnsWithoutTotal covers DST-005.
+func TestUbuntuClientWarnsWithoutTotal(t *testing.T) {
+	t.Parallel()
+	var queries []string
+	body := []byte(`{"notices":[{"id":"USN-1-1","title":"x","published":"2026-11-20T00:00:00","release_packages":{"noble":[{"name":"nginx","is_source":true}]}}]}`)
+	srv := serve(t, body, &queries)
+	notices, warnings, err := NewUbuntuClient(testHTTP(), "noble").SetURL(srv.URL).Fetch(context.Background())
+	if err != nil || len(notices) != 1 || len(queries) != 1 {
+		t.Fatalf("notices %d queries %d err %v", len(notices), len(queries), err)
+	}
+	if len(warnings) != 1 || !strings.Contains(warnings[0], "no total_results") {
+		t.Errorf("warnings = %v", warnings)
+	}
+}
+
+// TestUndatedNoticesSortLast covers DST-006.
+func TestUndatedNoticesSortLast(t *testing.T) {
+	t.Parallel()
+	d := func(day int) time.Time { return time.Date(2026, 11, day, 0, 0, 0, 0, time.UTC) }
+	ns := []Notice{{ID: "B"}, {ID: "C", Published: d(20)}, {ID: "A"}, {ID: "D", Published: d(18)}}
+	sortOldestFirst(ns)
+	var ids []string
+	for _, n := range ns {
+		ids = append(ids, n.ID)
+	}
+	if strings.Join(ids, ",") != "D,C,A,B" {
+		t.Errorf("order = %v", ids)
 	}
 }

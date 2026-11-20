@@ -80,12 +80,29 @@ func cleanLine(s string, n int) string {
 }
 
 // sortOldestFirst orders notices by publication time, then ID, so a batch
-// is posted in the order it was published.
+// is posted in the order it was published. Notices without a date sort
+// last, so a run of them cannot crowd dated ones out of the per-run cap.
 func sortOldestFirst(ns []Notice) {
 	slices.SortStableFunc(ns, func(a, b Notice) int {
+		switch az, bz := a.Published.IsZero(), b.Published.IsZero(); {
+		case az && !bz:
+			return 1
+		case bz && !az:
+			return -1
+		}
 		if c := a.Published.Compare(b.Published); c != 0 {
 			return c
 		}
 		return cmp.Compare(a.ID, b.ID)
 	})
+}
+
+// baseID strips the revision of an advisory ID: "DSA-6637-2" -> "DSA-6637",
+// "USN-8751-2" -> "USN-8751". Follow-ups share the base of the advisory
+// they amend.
+func baseID(id string) string {
+	if i := strings.LastIndexByte(id, '-'); i > 0 {
+		return id[:i]
+	}
+	return id
 }
