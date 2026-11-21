@@ -63,6 +63,14 @@ github_repo = "anthropics/claude-code"
 # 7 days are ignored, so enabling a source posts at most last week's.
 # Package names are distro-specific (php8.3 on Ubuntu 24.04, php8.4 on
 # Debian 13). URL overrides follow the drupal_security.feed_url rules.
+#
+# Posts go to the public channel. Watch the latest releases with a broad
+# list of the most commonly used server packages, like the lists below,
+# rather than one that mirrors a single server: the advisories are public,
+# a broad list does not reveal which of the packages a server runs, and
+# posts say nothing about whether a server is patched. Keep niche packages
+# only one server uses off the list, and keep unattended-upgrades enabled
+# on the servers; patching is what protects them.
 [ubuntu_security]
 # release  = "noble"   # Ubuntu 24.04 LTS (default)
 # packages = [
