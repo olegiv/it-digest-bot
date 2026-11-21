@@ -57,6 +57,13 @@ and this project adheres to [Semantic Versioning 2.0.0](https://semver.org/spec/
   fine-grained token with no permissions is enough (`public_repo` is not
   needed).
 - Deploy scripts quote the SSH host in every `ssh` call.
+- `.claude/shared` submodule updated from d02ee2d to 4045037
+  (claude-code-support-tools main). Every shared command that takes
+  arguments now declares `argument-hint` (audit finding CC-001);
+  `/commit-prepare` adds a mandatory uncached test gate on the exact tree
+  to be committed; the Go toolchain hook also covers `go vet`, `make` and
+  Go commands later in a command line, and warns when `jq` is missing;
+  the code-quality command and agent gain untrusted-checkout guards.
 - Removed Claude Code commands and an agent copied from another project
   (`.claude/commands/{build,clean,migrate,test}.md`,
   `.claude/agents/test-runner.md`): they described oCMS (`make assets`,
