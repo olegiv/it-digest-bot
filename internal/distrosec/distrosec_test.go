@@ -180,12 +180,36 @@ func TestUbuntuClientPagesAndQuery(t *testing.T) {
 func TestUbuntuClientStopsAtTotal(t *testing.T) {
 	t.Parallel()
 	var queries []string
-	srv := serve(t, []byte(`{"notices":[],"total_results":5}`), &queries)
+	srv := serve(t, []byte(`{"notices":[{"id":"USN-1-1","title":"x","release_packages":{"noble":[{"name":"nginx","is_source":true}]}}],"total_results":5}`), &queries)
 	if _, _, err := NewUbuntuClient(testHTTP(), "noble").SetURL(srv.URL).Fetch(context.Background()); err != nil {
 		t.Fatal(err)
 	}
 	if len(queries) != 1 {
 		t.Errorf("requests = %d, want 1 when the first page holds every result", len(queries))
+	}
+}
+
+// TestUbuntuClientRejectsEmpty: no notice for the release is an error, so a
+// schema change, a dropped release filter or a codename the API does not
+// know makes the run fail instead of going quiet.
+func TestUbuntuClientRejectsEmpty(t *testing.T) {
+	t.Parallel()
+	for name, tc := range map[string]struct {
+		body string
+		warn string
+	}{
+		"empty list":    {`{"notices":[],"total_results":0}`, ""},
+		"renamed key":   {`{"items":[{"id":"USN-1-1"}],"total_results":1}`, ""},
+		"other release": {`{"notices":[{"id":"USN-1-1","release_packages":{"jammy":[{"name":"nginx","is_source":true}]}}],"total_results":1}`, `1 notices list no packages for release "noble"`},
+	} {
+		srv := serve(t, []byte(tc.body), nil)
+		_, warnings, err := NewUbuntuClient(testHTTP(), "noble").SetURL(srv.URL).Fetch(context.Background())
+		if err == nil || !strings.Contains(err.Error(), `no notices for release "noble"`) {
+			t.Errorf("%s: err = %v", name, err)
+		}
+		if tc.warn != "" && (len(warnings) != 1 || warnings[0] != tc.warn) {
+			t.Errorf("%s: warnings = %v", name, warnings)
+		}
 	}
 }
 
@@ -414,7 +438,7 @@ func TestFormatNoticeEscapesAndBounds(t *testing.T) {
 		Title:      huge,
 		Packages:   []string{"a", "b", "c", "d", "e", "f", "g", "h", "i", "j"},
 		Fixed:      []string{huge, huge, huge, huge, huge, huge, huge, huge},
-		Paragraphs: []string{huge, huge, "[click](https://evil.example) `x`"},
+		Paragraphs: paragraphs(huge + "\n\n" + huge + "\n\n[click](https://evil.example) `x`"),
 		Link:       UbuntuNoticePageURL + "USN-1-1",
 		ProOnly:    true,
 		Assessment: Assessment{Remote: true, Impacts: []string{"code execution"}},
@@ -434,9 +458,28 @@ func TestFormatNoticeEscapesAndBounds(t *testing.T) {
 			t.Fatalf("control rune %U in post", r)
 		}
 	}
+	if strings.Contains(got, "evil.example") {
+		t.Errorf("bare link kept:\n%s", got)
+	}
 	reg := FormatNotice(&Notice{ID: "DSA-1-2", Distro: DebianDistro, Regression: true, Link: DebianTrackerURL + "DSA-1-2"})
 	if !strings.HasPrefix(reg, "♻️ *Debian security regression fix*") || !strings.Contains(reg, "`apt update && apt upgrade`") {
 		t.Errorf("regression post:\n%s", reg)
+	}
+}
+
+// TestAdvisoryTextLinks: bare URLs in advisory text would be auto-linked
+// in a plain-escaped post; only links to the distributions' sites remain.
+func TestAdvisoryTextLinks(t *testing.T) {
+	t.Parallel()
+	got := paragraphs("Details: https://evil.example/x and www.evil.example\nsee https://ubuntu.com/security/CVE-2026-1 or\nhttps://security-tracker.debian.org/tracker/DSA-1-1.\n\nhttp://ubuntu.com/x https://ubuntu.com.evil.example/ https://user@debian.org/ https://evil.example\u200b/x")
+	want := []string{"Details: and see https://ubuntu.com/security/CVE-2026-1 or https://security-tracker.debian.org/tracker/DSA-1-1."}
+	if len(got) != len(want) || got[0] != want[0] {
+		t.Errorf("paragraphs = %q, want %q", got, want)
+	}
+	body := []byte(`{"notices":[{"id":"USN-1-1","title":"nginx https://evil.example vulnerability","release_packages":{"noble":[{"name":"nginx","is_source":true}]}}],"total_results":1}`)
+	notices, _, _, err := ParseUbuntuNotices(body, "noble")
+	if err != nil || len(notices) != 1 || notices[0].Title != "nginx vulnerability" {
+		t.Errorf("title: %+v %v", notices, err)
 	}
 }
 

@@ -26,8 +26,9 @@ const (
 var esc = telegram.EscapeMarkdownV2Plain
 
 // FormatNotice renders one advisory as a MarkdownV2 post. Every value from
-// the feed is cleaned and plain-escaped; the only link is the advisory page
-// built from the validated ID.
+// the feed is cleaned and plain-escaped; the only Markdown link is the
+// advisory page built from the validated ID, and bare URLs in the text are
+// removed unless they point at ubuntu.com or debian.org (plainText).
 func FormatNotice(n *Notice) string {
 	var sb strings.Builder
 	fmt.Fprintf(&sb, "%s *%s security %s* — %s\n", severityEmoji(n), esc(n.Distro), kindWord(n), esc(n.ID))

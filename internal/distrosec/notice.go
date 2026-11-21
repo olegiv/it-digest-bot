@@ -2,6 +2,7 @@ package distrosec
 
 import (
 	"cmp"
+	"net/url"
 	"regexp"
 	"slices"
 	"strings"
@@ -65,16 +66,41 @@ var (
 func ValidPackageName(s string) bool { return pkgname.ValidSourcePackage(s) }
 
 // paragraphs splits advisory text on blank lines and cleans each paragraph
-// (telegram.CleanText), dropping empty ones.
+// (plainText), dropping empty ones.
 func paragraphs(text string) []string {
 	text = strings.ReplaceAll(text, "\r\n", "\n")
 	var out []string
 	for _, p := range strings.Split(text, "\n\n") {
-		if p = telegram.CleanText(p); p != "" {
+		if p = plainText(p); p != "" {
 			out = append(out, p)
 		}
 	}
 	return out
+}
+
+// plainText cleans untrusted advisory text (telegram.CleanText) and removes
+// the link tokens Telegram clients would auto-link in a plain-escaped post,
+// except links to the distributions' own sites (allowedLink). CleanText
+// runs first, so invisible characters cannot hide a URL from the filter.
+func plainText(s string) string {
+	s = telegram.StripBareLinks(telegram.CleanText(s), allowedLink)
+	return strings.Join(strings.Fields(s), " ")
+}
+
+// allowedLink keeps https links to ubuntu.com, debian.org and their
+// subdomains (security-tracker.debian.org); anything else is removed.
+func allowedLink(raw string) bool {
+	u, err := url.Parse(raw)
+	if err != nil || u.Scheme != "https" || u.User != nil || u.Port() != "" {
+		return false
+	}
+	host := strings.ToLower(u.Hostname())
+	for _, site := range []string{"ubuntu.com", "debian.org"} {
+		if host == site || strings.HasSuffix(host, "."+site) {
+			return true
+		}
+	}
+	return false
 }
 
 // validCVEs keeps the well-formed CVE IDs, without duplicates.

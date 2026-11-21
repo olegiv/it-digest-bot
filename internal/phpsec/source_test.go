@@ -333,10 +333,23 @@ func TestAllowedLink(t *testing.T) {
 		"https://user@php.net/":            false,
 		"https://php.net:8443/":            false,
 		"http://www.php.net":               false,
+		// Dot segments leave /php/ once a browser resolves them.
+		"https://github.com/php/../evil/x":           false,
+		"https://github.com/php/%2e%2e/evil/x":       false,
+		"https://github.com/php/%2E%2E/evil":         false,
+		"https://github.com/php%2f..%2fevil/x":       false,
+		"https://github.com/php/./x":                 false,
+		"https://github.com/php/..%5cevil":           false,
+		"https://github.com/php/php-src/":            true,
+		"https://github.com/php/php-src/..x/1.2.3..": true,
 	} {
 		if got := allowedLink(raw); got != want {
 			t.Errorf("allowedLink(%q) = %v, want %v", raw, got, want)
 		}
+	}
+	got := plainText("see https://github.com/php/../evil/payload and https://github.com/php/php-src/pull/1")
+	if got != "see and https://github.com/php/php-src/pull/1" {
+		t.Errorf("plainText = %q", got)
 	}
 }
 

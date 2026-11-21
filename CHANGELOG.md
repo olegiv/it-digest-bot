@@ -25,7 +25,9 @@ and this project adheres to [Semantic Versioning 2.0.0](https://semver.org/spec/
   advisory summary and excerpt (new `telegram.StripBareLinks`), except
   links to php.net and to github.com/php/…: the text is posted as plain
   text, where Telegram clients would auto-link any URL the advisory author
-  wrote.
+  wrote. A github.com link whose path has `.` or `..` segments (also
+  percent-encoded) or a backslash is removed too, since browsers resolve
+  `github.com/php/../x` to another account.
 - The PHP security advisory source fails the run when GitHub returns an
   empty advisory list instead of returning no candidates. php-src always
   has published advisories, so an empty list is an upstream glitch;
@@ -103,7 +105,10 @@ and this project adheres to [Semantic Versioning 2.0.0](https://semver.org/spec/
   source package, local issues included. Posts flag remotely exploitable
   issues, read from the advisory wording (kernel subsystem lists are not
   remote cues), and show impact, the update command and, for Ubuntu, CVEs
-  and the fixed version.
+  and the fixed version. Bare URLs in the advisory text are removed unless
+  they point at ubuntu.com or debian.org, as in PHP advisory posts. An
+  Ubuntu fetch with no notice for the configured release fails the run (a
+  schema change or an unknown codename would otherwise go quiet).
   Advisories older than 7 days are ignored; there is no first-run
   baseline. `config-check` shows whether each source is enabled.
 - Both PHP sources run in the same hourly run as the Go source and seed on

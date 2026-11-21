@@ -65,10 +65,27 @@ func allowedLink(raw string) bool {
 	case host == "php.net" || strings.HasSuffix(host, ".php.net"):
 		return true
 	case host == "github.com":
-		return strings.HasPrefix(u.EscapedPath(), "/php/")
+		return phpOrgPath(u.EscapedPath())
 	default:
 		return false
 	}
+}
+
+// phpOrgPath reports whether an escaped URL path stays inside /php/.
+// Browsers resolve dot segments ("/php/../x", "/php/%2e%2e/x") before
+// the request, so any "." or ".." segment, and any backslash (a path
+// separator to browsers), is rejected rather than resolved.
+func phpOrgPath(escaped string) bool {
+	p, err := url.PathUnescape(escaped)
+	if err != nil || !strings.HasPrefix(p, "/php/") || strings.Contains(p, "\\") {
+		return false
+	}
+	for _, seg := range strings.Split(p, "/") {
+		if seg == "." || seg == ".." {
+			return false
+		}
+	}
+	return true
 }
 
 func render(a *Advisory, withExcerpt bool) string {

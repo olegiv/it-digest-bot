@@ -112,6 +112,13 @@ func (c *UbuntuClient) Fetch(ctx context.Context) ([]Notice, []string, error) {
 			break
 		}
 	}
+	// The API is queried for one release, and Ubuntu publishes several
+	// notices a week for every supported one. No notice means a schema
+	// change, a dropped release filter or a codename the API does not
+	// know; failing makes OnFailure alert instead of going quiet.
+	if len(all) == 0 {
+		return nil, warnings, fmt.Errorf("ubuntu notices: no notices for release %q", c.release)
+	}
 	sortOldestFirst(all)
 	return all, warnings, nil
 }
@@ -186,7 +193,8 @@ type usnPackageRef struct {
 
 // ParseUbuntuNotices decodes one notices.json page and returns the notices
 // that list packages for release, plus the API's total result count.
-// Hidden notices and notices with an invalid ID are skipped, the latter
+// Hidden notices are skipped; notices with an invalid ID, or without
+// packages for release (the query asks for release only), are skipped
 // with a warning.
 func ParseUbuntuNotices(body []byte, release string) ([]Notice, []string, int, error) {
 	var page usnPage
@@ -194,8 +202,9 @@ func ParseUbuntuNotices(body []byte, release string) ([]Notice, []string, int, e
 		return nil, nil, 0, fmt.Errorf("decode ubuntu notices response: %w", err)
 	}
 	var (
-		out      []Notice
-		warnings []string
+		out          []Notice
+		warnings     []string
+		otherRelease int
 	)
 	for i := range page.Notices {
 		raw := &page.Notices[i]
@@ -209,9 +218,13 @@ func ParseUbuntuNotices(body []byte, release string) ([]Notice, []string, int, e
 		}
 		refs, ok := raw.ReleasePackages[release]
 		if !ok {
-			continue // not fixed for this release
+			otherRelease++ // the query asks for release; see the warning
+			continue
 		}
 		out = append(out, ubuntuNotice(id, raw, release, refs))
+	}
+	if otherRelease > 0 {
+		warnings = append(warnings, fmt.Sprintf("%d notices list no packages for release %q", otherRelease, release))
 	}
 	return out, warnings, page.TotalResults, nil
 }
@@ -220,7 +233,7 @@ func ubuntuNotice(id string, raw *usnJSON, release string, refs []usnPackageRef)
 	n := Notice{
 		ID:         id,
 		Distro:     ubuntuLabel(raw.Releases, release),
-		Title:      cleanLine(raw.Title, 200),
+		Title:      cleanLine(plainText(raw.Title), 200),
 		CVEs:       validCVEs(raw.CVEIDs),
 		rawDesc:    raw.Description,
 		rawContext: []string{raw.Title, raw.Summary},
