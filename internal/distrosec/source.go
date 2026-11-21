@@ -24,8 +24,8 @@ type fetcher interface {
 	Fetch(context.Context) ([]Notice, []string, error)
 }
 
-// Source turns relevant advisories into releasewatch candidates: those that
-// touch a watched package and are not limited to local attackers.
+// Source turns advisories into releasewatch candidates: every one that
+// touches a watched package, local issues included.
 //
 // It is deliberately not a releasewatch.Seeder. A filtered list is often
 // empty, and a Seeder seeds on the first run that returns candidates, which
@@ -97,8 +97,6 @@ func (s *Source) Candidates(ctx context.Context) ([]releasewatch.Candidate, erro
 	}
 
 	// Keep only advisories for watched packages, and analyze only those.
-	// A regression follow-up and the advisory it amends cover the same
-	// package, so both survive the filter for inheritRegressionVerdicts.
 	watched := notices[:0:0]
 	for _, n := range notices {
 		if len(matchPackages(n.Packages, s.watched)) > 0 {
@@ -106,23 +104,16 @@ func (s *Source) Candidates(ctx context.Context) ([]releasewatch.Candidate, erro
 			watched = append(watched, n)
 		}
 	}
-	inheritRegressionVerdicts(watched)
 
 	out := make([]releasewatch.Candidate, 0, len(watched))
-	localOnly, old := 0, 0
+	old := 0
 	for i := range watched {
 		n := &watched[i]
-		matched := matchPackages(n.Packages, s.watched)
 		if !n.Published.IsZero() && n.Published.Before(cutoff) {
 			old++
 			continue
 		}
-		if !Relevant(n.Assessment, matched) {
-			localOnly++
-			log.Info("security advisory skipped: local-only issue",
-				"source", s.name, "id", n.ID, "packages", matched, "reason", n.LocalReason)
-			continue
-		}
+		matched := matchPackages(n.Packages, s.watched)
 		n.Packages = matched
 		n.Fixed = fixedFor(n.Fixed, matched)
 		out = append(out, releasewatch.Candidate{
@@ -140,35 +131,10 @@ func (s *Source) Candidates(ctx context.Context) ([]releasewatch.Candidate, erro
 		"fetched", len(notices),
 		"watched", len(watched),
 		"relevant", len(out),
-		"local_only", localOnly,
 		"oldest_fetched", oldest,
 		"older_than_max_age", old,
 		"skipped", len(warnings))
 	return out, nil
-}
-
-// inheritRegressionVerdicts gives a regression follow-up without issue text
-// of its own (DSA-6637-2: "the update introduced a regression") the
-// local-only verdict of the advisory it amends, when that advisory is in the
-// same fetch. Without it, a fix for a local-only issue would be suppressed
-// while its regression follow-up is posted.
-func inheritRegressionVerdicts(notices []Notice) {
-	verdict := map[string]Assessment{}
-	for _, n := range notices {
-		if n.Described && !n.Regression {
-			verdict[baseID(n.ID)] = n.Assessment
-		}
-	}
-	for i := range notices {
-		n := &notices[i]
-		if !n.Regression || n.Described {
-			continue
-		}
-		if orig, ok := verdict[baseID(n.ID)]; ok && orig.LocalOnly {
-			n.LocalOnly = true
-			n.LocalReason = "regression follow-up of a local-only advisory: " + orig.LocalReason
-		}
-	}
 }
 
 // fixedFor keeps the "pkg version" entries of the matched packages.

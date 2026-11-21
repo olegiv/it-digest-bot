@@ -57,9 +57,9 @@ github_repo = "anthropics/claude-code"
 # Ubuntu and Debian security advisories for the software your web servers
 # run. Opt-in: each source runs only when `packages` lists source package
 # names. `digest watch` posts an Ubuntu Security Notice (USN) or Debian
-# Security Advisory (DSA) when it touches one of them and its text does not
-# limit the issue to local attackers; posts flag remotely exploitable
-# issues and show the impact, CVEs and fixed version. Advisories older than
+# Security Advisory (DSA) when it touches one of them, local issues
+# included; posts flag remotely exploitable issues and show the impact,
+# CVEs and (Ubuntu) fixed version. Advisories older than
 # 7 days are ignored, so enabling a source posts at most last week's.
 # Package names are distro-specific (php8.3 on Ubuntu 24.04, php8.4 on
 # Debian 13). URL overrides follow the drupal_security.feed_url rules.

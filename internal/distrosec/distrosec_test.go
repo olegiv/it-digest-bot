@@ -52,51 +52,37 @@ func serve(t *testing.T, body []byte, seen *[]string) *httptest.Server {
 func TestAssess(t *testing.T) {
 	t.Parallel()
 	for _, tc := range []struct {
-		text              string
-		remote, localOnly bool
-		impacts           string
+		text    string
+		remote  bool
+		impacts string
 	}{
-		{"A remote attacker could possibly use this issue to cause nginx\nto crash, resulting in a denial of service.", true, false, "denial of service"},
-		{"which could result in remote code\nexecution, denial of service, information disclosure or bypassing\nverification of client certificates.", true, false, "code execution,authentication bypass,information disclosure,denial of service"},
-		{"A local user can take advantage of this flaw for local privilege escalation to root.", false, true, "privilege escalation"},
-		{"A local attacker could use this. A remote attacker could also crash it.", true, false, "denial of service"},
-		{"Several security issues were discovered in the Linux kernel. An attacker could possibly use these to compromise the system. Subsystems: Network drivers; TLS protocol;", false, false, ""},
-		{"If a user or automated system were tricked into opening a specially crafted file, an attacker could execute arbitrary code.", true, false, "code execution"},
-		{"could result in HTTP request smuggling or cross-site scripting", true, false, "cross-site scripting,HTTP request smuggling"},
+		{"A remote attacker could possibly use this issue to cause nginx\nto crash, resulting in a denial of service.", true, "denial of service"},
+		{"which could result in remote code\nexecution, denial of service, information disclosure or bypassing\nverification of client certificates.", true, "code execution,authentication bypass,information disclosure,denial of service"},
+		{"A local user can take advantage of this flaw for local privilege escalation to root.", false, "privilege escalation"},
+		{"A local attacker could use this. A remote attacker could also crash it.", true, "denial of service"},
+		{"Several security issues were discovered in the Linux kernel. An attacker could possibly use these to compromise the system. Subsystems: Network drivers; TLS protocol;", false, ""},
+		{"If a user or automated system were tricked into opening a specially crafted file, an attacker could execute arbitrary code.", true, "code execution"},
+		{"could result in HTTP request smuggling or cross-site scripting", true, "cross-site scripting,HTTP request smuggling"},
+		{"An attacker could inject arbitrary web script (XSS).", true, "cross-site scripting"},
 	} {
 		a := Assess(tc.text)
-		if a.Remote != tc.remote || a.LocalOnly != tc.localOnly || strings.Join(a.Impacts, ",") != tc.impacts {
-			t.Errorf("Assess(%.60q) = remote %v local %v impacts %q; want %v %v %q",
-				tc.text, a.Remote, a.LocalOnly, strings.Join(a.Impacts, ","), tc.remote, tc.localOnly, tc.impacts)
+		if a.Remote != tc.remote || strings.Join(a.Impacts, ",") != tc.impacts {
+			t.Errorf("Assess(%.60q) = remote %v impacts %q; want %v %q",
+				tc.text, a.Remote, strings.Join(a.Impacts, ","), tc.remote, tc.impacts)
 		}
 	}
-	// USN-9065-1 (glibc, live data): one local issue among others must not
-	// make the whole notice local-only.
-	glibc := "It was discovered that the GNU C Library incorrectly handled the ccs=\noption in the fopen function. An attacker could possibly use this issue\nto cause GNU C Library to crash or execute arbitrary code.\n\n" +
-		"It was discovered that the GNU C Library incorrectly handled long domain\nnames in DNS search lists. An attacker on the local network could\npossibly use this issue to cause a denial of service.\n\n" +
-		"It was discovered that the GNU C Library dynamic loader had a race condition. A local attacker could\npossibly use this issue to execute arbitrary code with elevated\nprivileges."
-	if a := Assess(glibc, "GNU C Library vulnerabilities", "Several security issues were fixed in the GNU C Library."); a.LocalOnly || a.Remote {
-		t.Errorf("glibc: %+v; want relevant, not marked remote", a)
-	}
-	// A summary restates the description; it cannot turn a local-only
-	// notice into a relevant one (USN-9151-1).
-	if a := Assess("A local attacker could possibly use these issues to escalate privileges.", "needrestart vulnerability", "needrestart could be made to run programs as an administrator."); !a.LocalOnly {
-		t.Errorf("needrestart: %+v; want local-only", a)
-	}
-	// Notes without an issue do not count; a summary may add remote cues.
-	if a := Assess("A local user can gain root.\n\nThis update introduces the nullok option.", "x"); !a.LocalOnly {
-		t.Errorf("note paragraph: %+v; want local-only", a)
-	}
-	if a := Assess("A local user could crash it.", "GStreamer could be made to crash if it received specially crafted input."); a.LocalOnly || !a.Remote {
+	// A summary may add remote cues and impacts the description lacks.
+	if a := Assess("A local user could crash it.", "GStreamer could be made to crash if it received specially crafted input."); !a.Remote {
 		t.Errorf("remote cue in summary: %+v", a)
 	}
-	if Relevant(Assessment{}, nil) || Relevant(Assessment{LocalOnly: true}, []string{"x"}) || !Relevant(Assessment{}, []string{"x"}) {
-		t.Error("Relevant: watched package and not local-only")
+	if a := Assess("A local attacker could possibly use these issues to escalate privileges.", "needrestart vulnerability", "needrestart could be made to run programs as an administrator."); a.Remote ||
+		strings.Join(a.Impacts, ",") != "code execution,privilege escalation" {
+		t.Errorf("needrestart: %+v", a)
 	}
 }
 
 // ubuntuFixture holds six real noble notices (trimmed): nginx x2 (remote),
-// PyJWT, generic and FIPS kernels, and needrestart (local-only).
+// PyJWT, generic and FIPS kernels, and needrestart (local issue).
 func TestParseUbuntuNotices(t *testing.T) {
 	t.Parallel()
 	notices, warnings, total, err := ParseUbuntuNotices(fixture(t, "ubuntu-notices-noble.json"), "noble")
@@ -115,12 +101,9 @@ func TestParseUbuntuNotices(t *testing.T) {
 		}
 	}
 	nginx := byID["USN-9182-1"]
-	if !nginx.Remote || nginx.LocalOnly || len(nginx.CVEs) != 3 ||
+	if !nginx.Remote || len(nginx.CVEs) != 3 ||
 		strings.Join(nginx.Fixed, ",") != "nginx 1.24.0-2ubuntu7.21" || strings.Join(nginx.Packages, ",") != "nginx" {
 		t.Errorf("nginx notice = %+v", nginx)
-	}
-	if !byID["USN-9151-1"].LocalOnly {
-		t.Error("needrestart notice must be local-only")
 	}
 	if !byID["USN-9183-1"].ProOnly || byID["USN-9173-1"].ProOnly {
 		t.Error("FIPS kernel fix is Pro-only; the generic kernel is not")
@@ -259,8 +242,8 @@ func TestParseDebianFeed(t *testing.T) {
 			t.Errorf("tracker link text must be dropped: %q", p)
 		}
 	}
-	if !byID["DSA-6637-1"].LocalOnly || !byID["DSA-6637-2"].Regression {
-		t.Error("needrestart: security update is local-only, -2 is a regression fix")
+	if byID["DSA-6637-1"].Regression || !byID["DSA-6637-2"].Regression {
+		t.Error("needrestart: -1 is a security update, -2 is a regression fix")
 	}
 	if !notices[0].Published.Before(notices[len(notices)-1].Published) {
 		t.Error("advisories must be oldest first")
@@ -277,7 +260,7 @@ func TestParseDebianFeedErrors(t *testing.T) {
 	}
 }
 
-func TestSourceFiltersWatchedAndRemote(t *testing.T) {
+func TestSourceFiltersWatched(t *testing.T) {
 	t.Parallel()
 	srv := serve(t, fixture(t, "ubuntu-notices-noble.json"), nil)
 	src := NewUbuntuSource(NewUbuntuClient(testHTTP(), "noble").SetURL(srv.URL), []string{"nginx", "linux", "needrestart", " "})
@@ -296,11 +279,12 @@ func TestSourceFiltersWatchedAndRemote(t *testing.T) {
 			t.Errorf("candidate = %+v", c)
 		}
 	}
-	// needrestart is local-only, PyJWT and linux-fips are not watched.
-	if strings.Join(ids, ",") != "USN-9159-1,USN-9173-1,USN-9182-1" {
+	// Local issues are posted too (needrestart USN-9151-1); PyJWT and
+	// linux-fips are not watched.
+	if strings.Join(ids, ",") != "USN-9151-1,USN-9159-1,USN-9173-1,USN-9182-1" {
 		t.Fatalf("candidates = %v", ids)
 	}
-	ann, err := cands[1].Render(context.Background())
+	ann, err := cands[2].Render(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -323,9 +307,9 @@ func TestDebianSource(t *testing.T) {
 	for _, c := range cands {
 		ids = append(ids, c.Version)
 	}
-	// needrestart DSA-6637-1 is local-only, and so is its regression
-	// follow-up DSA-6637-2, which has no issue text of its own (DST-003).
-	if strings.Join(ids, ",") != "DSA-6620-1,DSA-6625-1,DSA-6641-1,DSA-6642-1" {
+	// Local issues are posted too: needrestart DSA-6637-1 and its
+	// regression follow-up DSA-6637-2.
+	if strings.Join(ids, ",") != "DSA-6620-1,DSA-6625-1,DSA-6637-1,DSA-6637-2,DSA-6641-1,DSA-6642-1" {
 		t.Errorf("candidates = %v", ids)
 	}
 }
@@ -508,74 +492,21 @@ func TestSourceDropsOldAdvisories(t *testing.T) {
 	}
 }
 
-// TestAssessAuditFindings covers DST-001 and DST-002 from the third audit.
-func TestAssessAuditFindings(t *testing.T) {
+// TestAssessKernelSubsystemList covers DST-001: kernel notices list
+// affected subsystems, which must not count as remote cues.
+func TestAssessKernelSubsystemList(t *testing.T) {
 	t.Parallel()
-	// DST-001: real USN-9183-1 text. "Remote Processor subsystem" is a
-	// subsystem list item, not a remote attacker.
+	// Real USN-9183-1 text. "Remote Processor subsystem" is a subsystem
+	// list item, not a remote attacker.
 	kernel := "Several security issues were discovered in the Linux kernel.\nAn attacker could possibly use these to compromise the system.\n" +
 		"This update corrects flaws in the following subsystems:\n  - USB Gadget drivers;\n  - Voltage and Current Regulator drivers;\n" +
 		"  - Remote Processor subsystem;\n  - RPMSG subsystem;\n  - Real Time Clock drivers;"
-	if a := Assess(kernel, "Linux kernel (FIPS) vulnerabilities", "Several security issues were fixed in the Linux kernel."); a.Remote || a.LocalOnly || !a.Described {
-		t.Errorf("kernel: %+v; want not remote, not local-only", a)
+	if a := Assess(kernel, "Linux kernel (FIPS) vulnerabilities", "Several security issues were fixed in the Linux kernel."); a.Remote {
+		t.Errorf("kernel: %+v; want not remote", a)
 	}
 	// A list item that does describe an issue still counts.
 	if a := Assess("Fixes:\n  - A remote attacker could crash the server;"); !a.Remote {
 		t.Errorf("issue list item: %+v; want remote", a)
-	}
-	// DST-002a: "locally" is not a local attacker.
-	if a := Assess("An attacker could possibly use this issue to read credentials stored locally."); a.LocalOnly {
-		t.Errorf("locally: %+v; want relevant", a)
-	}
-	// DST-002b: a flaw without attacker wording next to a local one.
-	if a := Assess("It was discovered that nginx mishandled HTTP/2 frames.\n\nA local attacker could escalate privileges."); a.LocalOnly {
-		t.Errorf("flaw + local paragraph: %+v; want relevant", a)
-	}
-	// "local privilege escalation" alone is an impact, not a local attacker.
-	if a := Assess("Several issues were found which could result in denial of service or local privilege escalation."); a.LocalOnly {
-		t.Errorf("impact list: %+v; want relevant", a)
-	}
-	// Still local-only, with the reason recorded for the log.
-	a := Assess("Armaan Sandhu discovered that needrestart did not properly handle cgroup paths.\nA local attacker could possibly use these\nissues to escalate privileges.")
-	if !a.LocalOnly || !strings.Contains(a.LocalReason, "A local attacker could possibly use these issues") {
-		t.Errorf("needrestart: %+v", a)
-	}
-	// USN-8751-2 (live data): a follow-up preamble referring to the
-	// original advisory is not an issue; the local original details decide.
-	urwid := "USN-8751-1 fixed a vulnerability in Urwid. This update provides the\ncorresponding updates for Ubuntu 16.04 LTS, Ubuntu 24.04 LTS, and Ubuntu\n26.10.\n\n" +
-		"Original advisory details:\n\n Katriel Moses discovered that Urwid used a weak PRNG. A local attacker\n could possibly use this issue to cause a denial of service or execute\n arbitrary code."
-	if a := Assess(urwid, "Urwid vulnerability"); !a.LocalOnly {
-		t.Errorf("urwid follow-up: %+v; want local-only", a)
-	}
-	// A regression paragraph is not an issue of its own.
-	if a := Assess("USN-8751-1 fixed vulnerabilities in urwid. The update introduced a regression. We apologize for the inconvenience."); a.Described {
-		t.Errorf("regression paragraph counted as an issue: %+v", a)
-	}
-}
-
-// TestRegressionInheritsVerdict covers DST-003 for Ubuntu-style IDs too.
-func TestRegressionInheritsVerdict(t *testing.T) {
-	t.Parallel()
-	notices := []Notice{
-		{ID: "USN-100-1", Assessment: Assessment{LocalOnly: true, Described: true, LocalReason: "A local attacker could"}},
-		{ID: "USN-100-2", Regression: true},
-		{ID: "USN-200-1", Assessment: Assessment{Remote: true, Described: true}},
-		{ID: "USN-200-2", Regression: true},
-		{ID: "USN-300-2", Regression: true},
-		{ID: "USN-400-2", Regression: true, Assessment: Assessment{Described: true}},
-	}
-	inheritRegressionVerdicts(notices)
-	want := map[string]bool{"USN-100-1": true, "USN-100-2": true, "USN-200-2": false, "USN-300-2": false, "USN-400-2": false}
-	for _, n := range notices {
-		if w, ok := want[n.ID]; ok && n.LocalOnly != w {
-			t.Errorf("%s LocalOnly = %v, want %v", n.ID, n.LocalOnly, w)
-		}
-	}
-	if !strings.HasPrefix(notices[1].LocalReason, "regression follow-up of a local-only advisory") {
-		t.Errorf("reason = %q", notices[1].LocalReason)
-	}
-	if baseID("DSA-6637-2") != "DSA-6637" || baseID("x") != "x" {
-		t.Error("baseID")
 	}
 }
 
@@ -634,16 +565,16 @@ func TestParsingDefersAnalysis(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, n := range append(notices, dsas...) {
-		if n.analyzed || len(n.Paragraphs) > 0 || n.Remote || n.LocalOnly || len(n.Impacts) > 0 {
+		if n.analyzed || len(n.Paragraphs) > 0 || n.Remote || len(n.Impacts) > 0 {
 			t.Fatalf("%s analyzed during parsing", n.ID)
 		}
 	}
 	n := dsas[len(dsas)-1]
 	n.Analyze()
 	first := n.Paragraphs
-	n.rawDesc = "A local attacker could"
+	n.rawDesc = "A remote attacker could"
 	n.Analyze() // idempotent: the second call changes nothing
-	if len(first) == 0 || len(n.Paragraphs) != len(first) || n.LocalOnly {
+	if len(first) == 0 || len(n.Paragraphs) != len(first) || n.Remote {
 		t.Errorf("Analyze not idempotent: %+v", n)
 	}
 	// A hand-built Notice (no raw text) keeps what the caller set.

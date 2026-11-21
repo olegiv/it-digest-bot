@@ -1,10 +1,10 @@
 // Package distrosec watches Ubuntu and Debian security advisories for the
 // source packages an operator runs on internet-facing servers. Ubuntu
 // Security Notices (USN) come from the ubuntu.com notices API, Debian
-// Security Advisories (DSA) from the debian.org DSA feed. A notice is
-// announced when it touches a configured package and its description does
-// not limit the issue to local attackers; it is fully deterministic, no LLM
-// is involved.
+// Security Advisories (DSA) from the debian.org DSA feed. Every notice that
+// touches a configured package is announced, local issues included; the
+// advisory text only labels the post (remote cue, impact). It is fully
+// deterministic, no LLM is involved.
 package distrosec
 
 import (
@@ -18,17 +18,6 @@ type Assessment struct {
 	// Remote is set when the text names a remote attacker, crafted input or
 	// a web-facing impact (request smuggling, XSS, SSRF, …).
 	Remote bool
-	// LocalOnly is set when the text names only local attackers or users
-	// and nothing remote. Such notices are not announced: they cannot be
-	// used to break into a server from outside.
-	LocalOnly bool
-	// LocalReason is the first local-only issue paragraph (shortened), for
-	// the log line that records a suppressed notice.
-	LocalReason string
-	// Described is set when the description has at least one issue
-	// paragraph of its own. A regression follow-up usually has none and
-	// takes the verdict of the advisory it amends (see Source).
-	Described bool
 	// Impacts are normalized impact labels in a fixed order, e.g.
 	// "code execution", "denial of service".
 	Impacts []string
@@ -38,24 +27,10 @@ var (
 	// remoteRe deliberately avoids words such as "network" or "TLS": kernel
 	// notices list affected subsystems ("Network drivers", "TLS protocol"),
 	// which say nothing about how the flaws can be reached.
-	remoteRe = regexp.MustCompile(`(?i)\bremote(ly)?\b|\bcrafted\b|\bunauthenticated\b|request smuggling|cross-site|server-side request forgery|\bSSRF\b`)
-	// issueRe marks a paragraph that describes an exploitable issue, as
-	// opposed to notes ("This update introduces the nullok option").
-	// A flaw described without naming who can reach it ("It was discovered
-	// that nginx mishandled HTTP/2 frames.") is an issue too.
+	remoteRe = regexp.MustCompile(`(?i)\bremote(ly)?\b|\bcrafted\b|\bunauthenticated\b|request smuggling|cross-site|\bXSS\b|server-side request forgery|\bSSRF\b`)
+	// issueRe marks a list item that describes an issue, as opposed to the
+	// subsystem lists of kernel notices (see dropListItems).
 	issueRe = regexp.MustCompile(`(?i)\battacker|\busers?\b|\bcould\b|\bcan (take|use|cause|exploit)|\bmay (allow|lead|result|be)|\bresult(s|ing)? in\b|\blead(s|ing)? to\b|\bdiscovered (that|a|an|in)\b|\bincorrectly\b|\bdid not (properly|correctly)\b|\bvulnerabilit|\bflaws?\b`)
-	// localRe names local attackers only. "locally" ("credentials stored
-	// locally") and "local privilege escalation" (often one impact among
-	// remote ones) say nothing about who can reach the flaw.
-	localRe = regexp.MustCompile(`(?i)\blocal (attacker|user)s?\b`)
-	// regressionRe marks a paragraph about a regression of an earlier
-	// update; it describes no new issue.
-	regressionRe = regexp.MustCompile(`(?i)\bregression`)
-	// followUpRe marks a follow-up preamble that refers to the advisory it
-	// extends ("USN-8751-1 fixed a vulnerability in Urwid. This update
-	// provides the corresponding updates for …"); the issue itself is in the
-	// "Original advisory details" that follow.
-	followUpRe = regexp.MustCompile(`(?i)\b(USN|DSA)[- ]\d+(-\d+)?\b`)
 	// bulletRe marks a list item. Kernel notices list affected subsystems
 	// ("  - Remote Processor subsystem;"); such items are ignored unless they
 	// describe an issue themselves.
@@ -78,75 +53,34 @@ var (
 )
 
 // Assess classifies an advisory: description holds blank-line separated
-// paragraphs, one per issue; context (title, summary) only restates them and
-// adds remote cues and impacts, never issues of its own. Ubuntu and
-// Debian security teams use consistent wording ("A remote attacker could …",
-// "A local user can …"), which is the only exposure signal both feeds
-// carry: neither lists CVSS vectors or priorities with the notice itself.
-//
-// Locality is judged per paragraph, because one notice often bundles
-// several issues: it is LocalOnly only when every paragraph that describes
-// an issue names a local attacker or user and nothing remote. A paragraph
-// with an unspecified attacker ("An attacker could …") or one on the local
-// network keeps the notice relevant.
+// paragraphs; context (title, summary) restates them and may add remote
+// cues and impacts. Ubuntu and Debian security teams use consistent
+// wording ("A remote attacker could …"), which is the only exposure signal
+// both feeds carry: neither lists CVSS vectors or priorities with the
+// notice itself. The result labels a post; it never suppresses one.
 func Assess(description string, context ...string) Assessment {
 	var (
-		a                  Assessment
-		issues, localIssue int
-		all                []string
+		a   Assessment
+		all []string
 	)
-	texts := append([]string{description}, context...)
-	for i, text := range texts {
+	for _, text := range append([]string{description}, context...) {
 		for _, para := range strings.Split(strings.ReplaceAll(text, "\r\n", "\n"), "\n\n") {
-			para = dropListItems(para)
 			// Feeds wrap lines mid-phrase ("remote code\nexecution").
-			para = strings.Join(strings.Fields(para), " ")
+			para = strings.Join(strings.Fields(dropListItems(para)), " ")
 			if para == "" {
 				continue
 			}
 			all = append(all, para)
-			remote := remoteRe.MatchString(para)
-			a.Remote = a.Remote || remote
-			if i == 0 && issueParagraph(para) {
-				issues++
-				if !remote && localRe.MatchString(para) {
-					localIssue++
-					if a.LocalReason == "" {
-						a.LocalReason = cleanLine(para, 200)
-					}
-				}
-			}
+			a.Remote = a.Remote || remoteRe.MatchString(para)
 		}
 	}
 	joined := strings.Join(all, " ")
-	a.Described = issues > 0
-	if issues > 0 {
-		a.LocalOnly = !a.Remote && localIssue == issues
-	} else {
-		a.LocalOnly = !a.Remote && localRe.MatchString(joined)
-		if a.LocalOnly {
-			a.LocalReason = cleanLine(joined, 200)
-		}
-	}
-	if !a.LocalOnly {
-		a.LocalReason = ""
-	}
 	for _, r := range impactRules {
 		if r.re.MatchString(joined) {
 			a.Impacts = append(a.Impacts, r.label)
 		}
 	}
 	return a
-}
-
-// issueParagraph reports whether a description paragraph describes an issue
-// of its own, as opposed to a note, a regression report or a follow-up
-// preamble that only refers to another advisory.
-func issueParagraph(para string) bool {
-	if !issueRe.MatchString(para) || regressionRe.MatchString(para) {
-		return false
-	}
-	return !followUpRe.MatchString(para) || strings.Contains(strings.ToLower(para), "attacker")
 }
 
 // dropListItems removes list-item lines that describe no issue, such as the
@@ -164,12 +98,6 @@ func dropListItems(para string) string {
 		kept = append(kept, line)
 	}
 	return strings.Join(kept, "\n")
-}
-
-// Relevant reports whether a notice should be announced: it touches one of
-// the watched packages and is not limited to local attackers.
-func Relevant(a Assessment, matched []string) bool {
-	return len(matched) > 0 && !a.LocalOnly
 }
 
 // matchPackages returns the watched packages among pkgs, in pkgs order.

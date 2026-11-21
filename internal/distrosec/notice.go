@@ -120,13 +120,3 @@ func sortOldestFirst(ns []Notice) {
 		return cmp.Compare(a.ID, b.ID)
 	})
 }
-
-// baseID strips the revision of an advisory ID: "DSA-6637-2" -> "DSA-6637",
-// "USN-8751-2" -> "USN-8751". Follow-ups share the base of the advisory
-// they amend.
-func baseID(id string) string {
-	if i := strings.LastIndexByte(id, '-'); i > 0 {
-		return id[:i]
-	}
-	return id
-}

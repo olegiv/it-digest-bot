@@ -10,7 +10,7 @@ import (
 )
 
 // Caps on escaped fields. Together they keep a post far below
-// telegram.MaxMessageBytes; TestFormatNoticeBoundsSize pins this.
+// telegram.MaxMessageBytes; TestFormatNoticeEscapesAndBounds pins this.
 const (
 	maxTitleBytes    = 256
 	maxExcerptBytes  = 700
@@ -107,8 +107,9 @@ func kindWord(n *Notice) string {
 	return "notice"
 }
 
-// severityEmoji ranks what the text says: remote code execution first,
-// then anything remote or code execution, then the rest.
+// severityEmoji ranks what the text says: regression fixes ♻️, remote
+// code execution 🔴, anything remote, code execution or privilege
+// escalation 🟠, the rest 🟡.
 func severityEmoji(n *Notice) string {
 	codeExec := slices.Contains(n.Impacts, "code execution")
 	switch {

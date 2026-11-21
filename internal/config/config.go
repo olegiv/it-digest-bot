@@ -85,7 +85,7 @@ type PHPConfig struct {
 // UbuntuSecurityConfig enables Ubuntu Security Notice alerts in
 // `digest watch`. The source runs only when Packages is non-empty: notices
 // of Release that touch one of these source packages (e.g. "nginx",
-// "openssl", "php8.3") and are not limited to local attackers are posted.
+// "openssl", "php8.3") are posted, local issues included.
 // NoticesURL overrides the API endpoint, with the same rules as
 // DrupalSecurityConfig.FeedURL.
 type UbuntuSecurityConfig struct {
