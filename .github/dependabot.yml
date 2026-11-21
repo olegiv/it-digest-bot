@@ -1,0 +1,39 @@
+# Dependabot version updates. Opens at most one grouped PR per ecosystem
+# per week; nothing is merged automatically.
+version: 2
+updates:
+  # SHA-pinned GitHub Actions: Dependabot bumps the commit and keeps the
+  # "# vX.Y.Z" comment in step.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: Europe/Zurich
+    groups:
+      github-actions:
+        patterns: ["*"]
+    commit-message:
+      prefix: ci
+
+  - package-ecosystem: gomod
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: Europe/Zurich
+    groups:
+      go-modules:
+        patterns: ["*"]
+    # modernc.org/sqlite needs the exact modernc.org/libc and
+    # modernc.org/memory versions from its own go.mod ("fragile libc
+    # dependency"). Never bump them on their own: a sqlite update raises
+    # them to exactly what the new sqlite requires. TestModerncPinnedToSQLite
+    # (internal/store, run by CI) fails any PR that still gets them wrong.
+    ignore:
+      - dependency-name: modernc.org/libc
+      - dependency-name: modernc.org/memory
+    commit-message:
+      prefix: deps

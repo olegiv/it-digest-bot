@@ -188,6 +188,11 @@ and this project adheres to [Semantic Versioning 2.0.0](https://semver.org/spec/
 - `it-digest-daily.service` sets `TimeoutStartSec=30min`, so a hung digest
   run is stopped and reported through the failure alert. Re-run
   `deploy/install.sh` (or `make deploy`) to install the updated units.
+- Dependabot (`.github/dependabot.yml`) opens one grouped PR per week for
+  the SHA-pinned GitHub Actions and one for Go modules. It never bumps
+  `modernc.org/libc` or `modernc.org/memory` on their own (they must match
+  `modernc.org/sqlite`); `TestModerncPinnedToSQLite` fails any PR that
+  gets them wrong.
 - GitHub Actions are pinned to full commit SHAs (`actions/checkout`
   v6.1.0, `actions/setup-go` v6.5.0, `golangci/golangci-lint-action`
   v9.3.0) instead of movable tags.

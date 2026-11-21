@@ -294,7 +294,7 @@ make tidy            # go mod tidy
 make fmt             # gofumpt -w .
 ```
 
-CI (GitHub Actions) runs build + vet + race tests + lint on every push and PR against `main`. A separate workflow runs `govulncheck` on every push and PR against `main` and weekly, since new advisories appear without code changes.
+CI (GitHub Actions) runs build + vet + race tests + lint on every push and PR against `main`. Dependabot opens one grouped PR per week for GitHub Actions and one for Go modules (`.github/dependabot.yml`); it leaves `modernc.org/libc` and `modernc.org/memory` alone because they must match `modernc.org/sqlite`. A separate workflow runs `govulncheck` on every push and PR against `main` and weekly, since new advisories appear without code changes.
 
 Test coverage targets (spec): ≥ 70% on `internal/claudecode`, `internal/telegram`, `internal/config`. Current (all above target):
 
