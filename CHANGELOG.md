@@ -21,6 +21,16 @@ and this project adheres to [Semantic Versioning 2.0.0](https://semver.org/spec/
   modernc.org/sqlite requires the exact libc version from its own go.mod.
   They are pinned back, and `TestModerncPinnedToSQLite` now fails whenever
   they drift.
+- PHP security advisory posts drop the URLs and `www.` tokens in the
+  advisory summary and excerpt (new `telegram.StripBareLinks`), except
+  links to php.net and to github.com/php/…: the text is posted as plain
+  text, where Telegram clients would auto-link any URL the advisory author
+  wrote.
+- The PHP security advisory source fails the run when GitHub returns an
+  empty advisory list instead of returning no candidates. php-src always
+  has published advisories, so an empty list is an upstream glitch;
+  before, the next non-empty run would have taken a brand-new advisory
+  into the first-run baseline instead of posting it.
 - `telegram.CleanText` also removes invisible characters that are not
   format characters: variation selectors, private-use characters,
   noncharacters, Hangul fillers (U+115F, U+1160, U+3164, U+FFA0), U+034F

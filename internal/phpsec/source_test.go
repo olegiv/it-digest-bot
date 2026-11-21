@@ -288,3 +288,105 @@ func TestCapField(t *testing.T) {
 		t.Errorf("no-op cap: %q", got)
 	}
 }
+
+// TestFormatAdvisoryDropsForeignLinks covers PHP-002: advisory text is
+// posted as plain text, where Telegram clients would auto-link any URL.
+func TestFormatAdvisoryDropsForeignLinks(t *testing.T) {
+	t.Parallel()
+	a := &Advisory{
+		ID:      "GHSA-aaaa-bbbb-cccc",
+		Summary: "Overflow, see https://evil.example/x and www.evil.example",
+		Description: "A remote attacker could crash PHP. Details: https://evil.example/poc " +
+			"tg://resolve?domain=evil, fixed in https://www.php.net/ChangeLog-8.php and " +
+			"https://github.com/php/php-src/commit/abc but not https://github.com/evil/php.",
+		Link: AdvisoriesPageURL + "/GHSA-aaaa-bbbb-cccc",
+	}
+	got := FormatAdvisory(a)
+	for _, bad := range []string{"evil", "tg:"} {
+		if strings.Contains(got, bad) {
+			t.Errorf("foreign link %q survived:\n%s", bad, got)
+		}
+	}
+	for _, want := range []string{
+		"*Overflow, see and*",
+		"https://www\\.php\\.net/ChangeLog\\-8\\.php",
+		"https://github\\.com/php/php\\-src/commit/abc",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("post missing %q:\n%s", want, got)
+		}
+	}
+}
+
+func TestAllowedLink(t *testing.T) {
+	t.Parallel()
+	for raw, want := range map[string]bool{
+		"https://www.php.net/x":            true,
+		"https://php.net/x":                true,
+		"https://bugs.php.net/1":           true,
+		"https://github.com/php/php-src/x": true,
+		"http://www.php.net/x":             false,
+		"https://php.net.evil.example/":    false,
+		"https://evilphp.net/":             false,
+		"https://github.com/phpevil/x":     false,
+		"https://github.com/evil/php":      false,
+		"https://user@php.net/":            false,
+		"https://php.net:8443/":            false,
+		"http://www.php.net":               false,
+	} {
+		if got := allowedLink(raw); got != want {
+			t.Errorf("allowedLink(%q) = %v, want %v", raw, got, want)
+		}
+	}
+}
+
+// TestSourceRejectsEmptyList covers PHP-004: an empty advisory list must not
+// let a later first non-empty run take a new advisory into the baseline.
+func TestSourceRejectsEmptyList(t *testing.T) {
+	t.Parallel()
+	var mu sync.Mutex
+	body := `[]`
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		mu.Lock()
+		defer mu.Unlock()
+		_, _ = w.Write([]byte(body))
+	}))
+	t.Cleanup(srv.Close)
+
+	ctx := context.Background()
+	st, err := store.Open(ctx, "file:"+filepath.Join(t.TempDir(), "empty.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+	if err := st.Migrate(ctx); err != nil {
+		t.Fatal(err)
+	}
+	src := NewSource(testHTTP(), "")
+	src.Client.SetAPIURL(srv.URL)
+	bot := &recordingSender{}
+	r := &releasewatch.Runner{Sources: []releasewatch.Source{src}, Channel: "@ch", Bot: bot, Releases: st.Releases, Posts: st.Posts}
+
+	if _, err := r.Run(ctx); err == nil || !strings.Contains(err.Error(), "no published advisories") {
+		t.Fatalf("empty list: err = %v, want an error", err)
+	}
+	if len(bot.messages) != 0 {
+		t.Fatalf("empty list posted %d messages", len(bot.messages))
+	}
+
+	// The endpoint recovers with the full history: that run seeds (one
+	// notice), and the next new advisory is then posted on its own.
+	mu.Lock()
+	body = advisoriesJSON
+	mu.Unlock()
+	res, err := r.Run(ctx)
+	if err != nil || res.SeededCount() != 2 || len(bot.messages) != 1 {
+		t.Fatalf("recovery run: seeded %d messages %d err %v", res.SeededCount(), len(bot.messages), err)
+	}
+	mu.Lock()
+	body = `[{"ghsa_id":"GHSA-7c2m-q5vr-3f8h","summary":"New","severity":"high","state":"published","published_at":"2026-11-21T08:00:00Z"},` + advisoriesJSON[1:]
+	mu.Unlock()
+	if res, err = r.Run(ctx); err != nil || res.PostedCount() != 1 {
+		t.Errorf("new advisory: posted %d err %v", res.PostedCount(), err)
+	}
+}

@@ -192,3 +192,23 @@ func TestLinkRemovalCannotGlueNewLinks(t *testing.T) {
 		}
 	}
 }
+
+func TestStripBareLinks(t *testing.T) {
+	t.Parallel()
+	php := func(u string) bool { return strings.HasPrefix(u, "https://www.php.net/") }
+	for _, tc := range []struct{ in, want string }{
+		{"See https://evil.example/x for details.", "See  for details."},
+		{"Fixed in https://www.php.net/ChangeLog-8.php.", "Fixed in https://www.php.net/ChangeLog-8.php."},
+		{"[click](https://evil.example) `tg://join`", "[click]() ``"},
+		{"tg:/https://evil.example/ /evil", "tg:/ /evil"},
+		{"go www.evil.example now", "go  now"},
+		{"no links here", "no links here"},
+	} {
+		if got := StripBareLinks(tc.in, php); got != tc.want {
+			t.Errorf("StripBareLinks(%q) = %q, want %q", tc.in, got, tc.want)
+		}
+	}
+	if got := StripBareLinks("a https://www.php.net/x b", nil); got != "a  b" {
+		t.Errorf("nil policy = %q", got)
+	}
+}

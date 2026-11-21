@@ -2,6 +2,7 @@ package phpsec
 
 import (
 	"fmt"
+	"net/url"
 	"strconv"
 	"strings"
 	"unicode/utf8"
@@ -46,11 +47,35 @@ func FormatAdvisory(a *Advisory) string {
 	return text
 }
 
+// plainText removes the link tokens Telegram clients would auto-link in
+// advisory text (it is posted as plain text, so a URL in it would become a
+// live link to wherever the advisory author pointed it). Links to php.net
+// and to the php GitHub organization stay; see allowedLink.
+func plainText(s string) string {
+	return strings.Join(strings.Fields(telegram.StripBareLinks(s, allowedLink)), " ")
+}
+
+// allowedLink keeps https links to php.net and to github.com/php/….
+func allowedLink(raw string) bool {
+	u, err := url.Parse(raw)
+	if err != nil || u.Scheme != "https" || u.User != nil || u.Port() != "" {
+		return false
+	}
+	switch host := strings.ToLower(u.Hostname()); {
+	case host == "php.net" || strings.HasSuffix(host, ".php.net"):
+		return true
+	case host == "github.com":
+		return strings.HasPrefix(u.EscapedPath(), "/php/")
+	default:
+		return false
+	}
+}
+
 func render(a *Advisory, withExcerpt bool) string {
 	var sb strings.Builder
 	fmt.Fprintf(&sb, "%s *PHP security advisory* — %s\n", severityEmoji(a.Severity), field(a.ID))
-	if a.Summary != "" {
-		fmt.Fprintf(&sb, "*%s*\n", field(a.Summary))
+	if summary := plainText(a.Summary); summary != "" {
+		fmt.Fprintf(&sb, "*%s*\n", field(summary))
 	}
 	sb.WriteString("\n")
 	fmt.Fprintf(&sb, "Severity: *%s*", esc(severityLabel(a.Severity)))
@@ -81,7 +106,7 @@ func render(a *Advisory, withExcerpt bool) string {
 	}
 
 	if withExcerpt {
-		if ex := Excerpt(a.Description); ex != "" {
+		if ex := plainText(Excerpt(a.Description)); ex != "" {
 			fmt.Fprintf(&sb, "\n%s\n", capField(esc(ex), MaxExcerptBytes))
 		}
 	}
