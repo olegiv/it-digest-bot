@@ -37,6 +37,30 @@ const (
 // the config applies to watched package lists.
 var dsaTitleRe = regexp.MustCompile(`^(DSA-\d{1,6}-\d{1,3})\s+(\S{1,64})\s+-\s+([A-Za-z ]{1,40})$`)
 
+// dsaLooseTitleRe takes the ID and package from any other DSA title
+// ("DSA-6650-1 nginx - security update (bookworm)"), so an unexpected
+// suffix cannot hide an advisory for a watched package.
+var dsaLooseTitleRe = regexp.MustCompile(`^(DSA-\d{1,6}-\d{1,3})\s+(\S{1,64})(?:\s+(.*))?$`)
+
+// dsaTitle splits a DSA title into ID, package and kind ("security update").
+// ok is false when no ID and valid package name can be read; strict is false
+// when the title only matched the loose form, whose kind is cleaned and
+// shortened rest-of-title text.
+func dsaTitle(title string) (id, pkg, kind string, ok, strict bool) {
+	if m := dsaTitleRe.FindStringSubmatch(title); m != nil && ValidPackageName(m[2]) {
+		return m[1], m[2], strings.ToLower(strings.TrimSpace(m[3])), true, true
+	}
+	m := dsaLooseTitleRe.FindStringSubmatch(title)
+	if m == nil || !ValidPackageName(m[2]) {
+		return "", "", "", false, false
+	}
+	kind = strings.ToLower(cleanLine(plainText(strings.TrimLeft(m[3], "-– ")), 60))
+	if kind == "" {
+		kind = "security update"
+	}
+	return m[1], m[2], kind, true, false
+}
+
 // DebianClient reads the Debian Security Advisory feed.
 type DebianClient struct {
 	url  string
@@ -93,8 +117,9 @@ func (c *DebianClient) Fetch(ctx context.Context) ([]Notice, []string, error) {
 	return ParseDebianFeed(body)
 }
 
-// ParseDebianFeed parses the DSA RSS feed. Items whose title is not a DSA
-// title are skipped with a warning; an empty or unparsable feed is an
+// ParseDebianFeed parses the DSA RSS feed. An unusual DSA title is parsed
+// loosely (dsaTitle) and reported in a warning; items without a DSA ID and
+// valid package name are skipped with a warning; an empty or unparsable feed is an
 // error, since debian.org always lists recent advisories.
 func ParseDebianFeed(body []byte) ([]Notice, []string, error) {
 	feed, err := gofeed.NewParser().Parse(bytes.NewReader(body))
@@ -111,12 +136,14 @@ func ParseDebianFeed(body []byte) ([]Notice, []string, error) {
 			continue
 		}
 		title := cleanLine(item.Title, 200)
-		m := dsaTitleRe.FindStringSubmatch(title)
-		if m == nil || !ValidPackageName(m[2]) {
+		id, pkg, kind, ok, strict := dsaTitle(title)
+		if !ok {
 			warnings = append(warnings, fmt.Sprintf("item %d: not a DSA title %.80q", i, title))
 			continue
 		}
-		id, pkg, kind := m[1], m[2], strings.ToLower(strings.TrimSpace(m[3]))
+		if !strict {
+			warnings = append(warnings, fmt.Sprintf("%s: unusual DSA title %.80q, posted as %s %q", id, title, pkg, kind))
+		}
 		if seen[id] {
 			continue
 		}

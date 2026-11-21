@@ -2,6 +2,9 @@ package distrosec
 
 import (
 	"context"
+	"fmt"
+	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -483,6 +486,71 @@ func TestAdvisoryTextLinks(t *testing.T) {
 	}
 }
 
+// TestNoSourcePackage covers #7 of the PR review: a notice without a source
+// package can match no watch list, so it is skipped with a warning, a page
+// of them fails the fetch, and a watched binary name is reported.
+func TestNoSourcePackage(t *testing.T) {
+	t.Parallel()
+	binaryOnly := `{"id":"USN-2-1","title":"x","release_packages":{"noble":[{"name":"nginx-core","is_source":false,"pocket":"security"}]}}`
+	body := []byte(`{"notices":[` + binaryOnly + `,{"id":"USN-3-1","title":"y","release_packages":{"noble":[{"name":"nginx","is_source":true}]}}],"total_results":2}`)
+	notices, warnings, _, err := ParseUbuntuNotices(body, "noble")
+	if err != nil || len(notices) != 1 || notices[0].ID != "USN-3-1" {
+		t.Fatalf("notices %+v err %v", notices, err)
+	}
+	if len(warnings) != 1 || warnings[0] != `USN-2-1: no source package for release "noble"` {
+		t.Errorf("warnings = %v", warnings)
+	}
+	srv := serve(t, []byte(`{"notices":[`+binaryOnly+`],"total_results":1}`), nil)
+	if _, _, err := NewUbuntuClient(testHTTP(), "noble").SetURL(srv.URL).Fetch(context.Background()); err == nil {
+		t.Error("a page without source packages must fail the fetch")
+	}
+
+	fx := serve(t, fixture(t, "ubuntu-notices-noble.json"), nil)
+	var logs strings.Builder
+	src := NewUbuntuSource(NewUbuntuClient(testHTTP(), "noble").SetURL(fx.URL), []string{"python3-jwt", "nginx"})
+	src.Now = fixtureNow
+	src.Logger = slog.New(slog.NewTextHandler(&logs, nil))
+	if _, err := src.Candidates(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	want := `level=WARN msg="watched name is a binary package; list its source package instead" source=ubuntu-security name=python3-jwt source_packages=[pyjwt]`
+	if !strings.Contains(logs.String(), want) || strings.Count(logs.String(), "binary package") != 1 {
+		t.Errorf("logs:\n%s", logs.String())
+	}
+}
+
+// TestUnusualDSATitle covers #8 of the PR review: a DSA whose title does
+// not have the usual "pkg - kind" shape is still posted, with a warning.
+func TestUnusualDSATitle(t *testing.T) {
+	t.Parallel()
+	feed := `<?xml version="1.0"?><rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#" xmlns="http://purl.org/rss/1.0/"><channel><title>x</title></channel>
+<item><title>DSA-6650-1 nginx - security update (bookworm)</title><description>A remote attacker could crash nginx.</description></item>
+<item><title>DSA-6651-1 php8.4</title><description>x</description></item>
+<item><title>DSA-6652-2 openssl -- regression update, see https://evil.example</title><description>x</description></item>
+<item><title>DSA-6653-1 nginx - security update</title><description>x</description></item></rdf:RDF>`
+	notices, warnings, err := ParseDebianFeed([]byte(feed))
+	if err != nil || len(notices) != 4 {
+		t.Fatalf("notices %+v err %v", notices, err)
+	}
+	got := map[string]string{}
+	for _, n := range notices {
+		got[n.ID] = fmt.Sprintf("%s|%v", n.Title, n.Regression)
+	}
+	for id, want := range map[string]string{
+		"DSA-6650-1": "nginx - security update (bookworm)|false",
+		"DSA-6651-1": "php8.4 - security update|false",
+		"DSA-6652-2": "openssl - regression update, see|true",
+		"DSA-6653-1": "nginx - security update|false",
+	} {
+		if got[id] != want {
+			t.Errorf("%s = %q, want %q", id, got[id], want)
+		}
+	}
+	if len(warnings) != 3 || !strings.HasPrefix(warnings[0], `DSA-6650-1: unusual DSA title`) {
+		t.Errorf("warnings = %v", warnings)
+	}
+}
+
 func TestFixedFor(t *testing.T) {
 	t.Parallel()
 	got := fixedFor([]string{"linux 1", "linux-aws 2", "nginx 3"}, []string{"linux", "nginx"})
@@ -515,12 +583,13 @@ func fixtureNow() time.Time { return time.Date(2026, 11, 21, 0, 0, 0, 0, time.UT
 // MaxAdvisoryAge.
 func debianNow() time.Time { return time.Date(2026, 11, 19, 0, 0, 0, 0, time.UTC) }
 
-func TestSourceDropsOldAdvisories(t *testing.T) {
+func TestSourceExpiresOldAdvisories(t *testing.T) {
 	t.Parallel()
 	srv := serve(t, fixture(t, "debian-dsa-long.rdf"), nil)
 	src := NewDebianSource(NewDebianClient(testHTTP()).SetURL(srv.URL), []string{"nginx", "apache2", "linux"})
 	// Cutoff 2026-11-13: DSA-6616-1 (linux, 11-08) and DSA-6620-1 (apache2,
-	// 11-12) are too old; linux DSA-6628-1 (11-13) and nginx stay.
+	// 11-12) are too old and come back expired; linux DSA-6628-1 (11-13)
+	// and nginx are posted.
 	src.Now = func() time.Time { return time.Date(2026, 11, 20, 0, 0, 0, 0, time.UTC) }
 	cands, err := src.Candidates(context.Background())
 	if err != nil {
@@ -528,10 +597,68 @@ func TestSourceDropsOldAdvisories(t *testing.T) {
 	}
 	var ids []string
 	for _, c := range cands {
-		ids = append(ids, c.Version)
+		ids = append(ids, c.Version+":"+c.Expired)
 	}
-	if strings.Join(ids, ",") != "DSA-6628-1,DSA-6642-1" {
+	want := "DSA-6616-1:published 2026-11-08, older than 7 days," +
+		"DSA-6620-1:published 2026-11-12, older than 7 days,DSA-6628-1:,DSA-6642-1:"
+	if strings.Join(ids, ",") != want {
 		t.Errorf("candidates = %v", ids)
+	}
+}
+
+// TestExpiredThroughRunner covers #9 of the PR review: an advisory that
+// ages out unposted is recorded once with a Warn line instead of vanishing;
+// one that was posted in time stays quiet; a dry run records nothing.
+func TestExpiredThroughRunner(t *testing.T) {
+	t.Parallel()
+	srv := serve(t, fixture(t, "debian-dsa-long.rdf"), nil)
+	ctx := context.Background()
+	st, err := store.Open(ctx, "file:"+filepath.Join(t.TempDir(), "exp.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+	if err := st.Migrate(ctx); err != nil {
+		t.Fatal(err)
+	}
+	// DSA-6620-1 was posted while it was new; DSA-6616-1 never was.
+	if err := st.Releases.RecordSeen(ctx, "dsa", "DSA-6620-1", 7, ""); err != nil {
+		t.Fatal(err)
+	}
+	src := NewDebianSource(NewDebianClient(testHTTP()).SetURL(srv.URL), []string{"apache2", "linux"})
+	src.Now = func() time.Time { return time.Date(2026, 11, 20, 0, 0, 0, 0, time.UTC) }
+	var logs strings.Builder
+	bot := &recordingSender{}
+	r := &releasewatch.Runner{
+		Sources: []releasewatch.Source{src},
+		Channel: "@ch", Bot: bot, Releases: st.Releases, Posts: st.Posts,
+		Logger: slog.New(slog.NewTextHandler(&logs, nil)),
+		DryRun: true, DryOut: io.Discard,
+	}
+	if _, err := r.Run(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if seen, _ := st.Releases.HasSeen(ctx, "dsa", "DSA-6616-1"); seen {
+		t.Fatal("dry run recorded an expired advisory")
+	}
+	r.DryRun = false
+	res, err := r.Run(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Count(releasewatch.OutcomeExpired) != 1 || res.Count(releasewatch.OutcomeSeen) != 1 || res.PostedCount() != 1 || len(bot.messages) != 1 {
+		t.Fatalf("items = %+v, messages %d", res.Items, len(bot.messages))
+	}
+	if seen, _ := st.Releases.HasSeen(ctx, "dsa", "DSA-6616-1"); !seen {
+		t.Error("expired advisory not recorded")
+	}
+	if strings.Count(logs.String(), `level=WARN msg="release never posted: expired; recorded as seen"`) != 1 ||
+		strings.Count(logs.String(), `level=WARN msg="dry-run: release never posted: expired; would be recorded as seen"`) != 1 {
+		t.Errorf("expired warnings, want one per run:\n%s", logs.String())
+	}
+	res, err = r.Run(ctx)
+	if err != nil || res.Count(releasewatch.OutcomeExpired) != 0 || len(bot.messages) != 1 {
+		t.Errorf("second run: %+v err %v", res.Items, err)
 	}
 }
 

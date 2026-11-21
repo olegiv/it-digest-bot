@@ -109,8 +109,14 @@ and this project adheres to [Semantic Versioning 2.0.0](https://semver.org/spec/
   they point at ubuntu.com or debian.org, as in PHP advisory posts. An
   Ubuntu fetch with no notice for the configured release fails the run (a
   schema change or an unknown codename would otherwise go quiet).
-  Advisories older than 7 days are ignored; there is no first-run
-  baseline. `config-check` shows whether each source is enabled.
+  Advisories older than 7 days are not posted; there is no first-run
+  baseline. An older one that was never posted is recorded as seen with
+  one warning (new `releasewatch.Candidate.Expired` and `OutcomeExpired`),
+  so an advisory whose send kept failing cannot age out silently.
+  Notices without a source package, watched names that are binary
+  packages and unusual DSA titles are logged as warnings; an unusual DSA
+  title is still parsed for its ID and package and posted.
+  `config-check` shows whether each source is enabled.
 - Both PHP sources run in the same hourly run as the Go source and seed on
   their first run: the current state is recorded as the baseline and one
   "now tracked" notice is posted per source. Optional `[php] releases_url`

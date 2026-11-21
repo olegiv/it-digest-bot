@@ -2,7 +2,10 @@ package distrosec
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
+	"maps"
+	"slices"
 	"time"
 
 	"github.com/olegiv/it-digest-bot/internal/releasewatch"
@@ -14,9 +17,10 @@ const (
 	DebianPackageKey    = "dsa"
 )
 
-// MaxAdvisoryAge drops advisories published longer ago than this. Hourly
-// runs only need the newest ones; the bound keeps the first run, and a
-// package newly added to the list, from posting weeks-old advisories.
+// MaxAdvisoryAge bounds which advisories are posted. Hourly runs only need
+// the newest ones; the bound keeps the first run, and a package newly added
+// to the list, from posting weeks-old advisories. Older ones are returned
+// as expired candidates, so one that was never posted is logged once.
 const MaxAdvisoryAge = 7 * 24 * time.Hour
 
 // fetcher is the part of UbuntuClient / DebianClient a Source needs.
@@ -98,11 +102,24 @@ func (s *Source) Candidates(ctx context.Context) ([]releasewatch.Candidate, erro
 
 	// Keep only advisories for watched packages, and analyze only those.
 	watched := notices[:0:0]
+	binaryHits := map[string][]string{}
 	for _, n := range notices {
 		if len(matchPackages(n.Packages, s.watched)) > 0 {
 			n.Analyze()
 			watched = append(watched, n)
+			continue
 		}
+		for _, b := range matchPackages(n.binaries, s.watched) {
+			binaryHits[b] = append(binaryHits[b], n.Packages...)
+		}
+	}
+	// The lists name source packages; a binary name (php8.3-fpm, libssl3)
+	// never matches and would silently watch nothing.
+	for _, name := range slices.Sorted(maps.Keys(binaryHits)) {
+		sources := binaryHits[name]
+		slices.Sort(sources)
+		log.Warn("watched name is a binary package; list its source package instead",
+			"source", s.name, "name", name, "source_packages", slices.Compact(sources))
 	}
 
 	out := make([]releasewatch.Candidate, 0, len(watched))
@@ -110,7 +127,19 @@ func (s *Source) Candidates(ctx context.Context) ([]releasewatch.Candidate, erro
 	for i := range watched {
 		n := &watched[i]
 		if !n.Published.IsZero() && n.Published.Before(cutoff) {
+			// Not dropped: the runner records an unseen one as expired
+			// with a Warn line (an advisory whose send kept failing, or
+			// one published while the bot was down), and stays quiet for
+			// one that was posted in time.
 			old++
+			out = append(out, releasewatch.Candidate{
+				Source:  s.name,
+				Package: s.pkgKey,
+				Version: n.ID,
+				URL:     n.Link,
+				Expired: fmt.Sprintf("published %s, older than %d days", n.Published.Format("2006-01-02"), int(MaxAdvisoryAge.Hours()/24)),
+				Render:  expiredRender,
+			})
 			continue
 		}
 		matched := matchPackages(n.Packages, s.watched)
@@ -130,11 +159,17 @@ func (s *Source) Candidates(ctx context.Context) ([]releasewatch.Candidate, erro
 		"source", s.name,
 		"fetched", len(notices),
 		"watched", len(watched),
-		"relevant", len(out),
+		"relevant", len(out)-old,
 		"oldest_fetched", oldest,
 		"older_than_max_age", old,
 		"skipped", len(warnings))
 	return out, nil
+}
+
+// expiredRender is the Render of an expired candidate; the runner never
+// calls it (see releasewatch.Candidate.Expired).
+func expiredRender(context.Context) (*releasewatch.Announcement, error) {
+	return nil, releasewatch.Deferf("expired advisory")
 }
 
 // fixedFor keeps the "pkg version" entries of the matched packages.

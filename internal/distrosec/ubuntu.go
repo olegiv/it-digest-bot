@@ -193,9 +193,9 @@ type usnPackageRef struct {
 
 // ParseUbuntuNotices decodes one notices.json page and returns the notices
 // that list packages for release, plus the API's total result count.
-// Hidden notices are skipped; notices with an invalid ID, or without
-// packages for release (the query asks for release only), are skipped
-// with a warning.
+// Hidden notices are skipped; notices with an invalid ID, without
+// packages for release (the query asks for release only) or without a
+// source package are skipped with a warning.
 func ParseUbuntuNotices(body []byte, release string) ([]Notice, []string, int, error) {
 	var page usnPage
 	if err := json.Unmarshal(body, &page); err != nil {
@@ -221,7 +221,14 @@ func ParseUbuntuNotices(body []byte, release string) ([]Notice, []string, int, e
 			otherRelease++ // the query asks for release; see the warning
 			continue
 		}
-		out = append(out, ubuntuNotice(id, raw, release, refs))
+		n := ubuntuNotice(id, raw, release, refs)
+		if len(n.Packages) == 0 {
+			// No watch list can match it; say so instead of letting a
+			// renamed is_source field look like a quiet hour.
+			warnings = append(warnings, fmt.Sprintf("%s: no source package for release %q", id, release))
+			continue
+		}
+		out = append(out, n)
 	}
 	if otherRelease > 0 {
 		warnings = append(warnings, fmt.Sprintf("%d notices list no packages for release %q", otherRelease, release))
@@ -257,6 +264,9 @@ func ubuntuNotice(id string, raw *usnJSON, release string, refs []usnPackageRef)
 				sources[name] = v
 			}
 			continue
+		}
+		if !slices.Contains(n.binaries, name) {
+			n.binaries = append(n.binaries, name)
 		}
 		if ref.Pocket != "" {
 			binaries++

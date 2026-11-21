@@ -60,7 +60,9 @@ github_repo = "anthropics/claude-code"
 # Security Advisory (DSA) when it touches one of them, local issues
 # included; posts flag remotely exploitable issues and show the impact,
 # CVEs and (Ubuntu) fixed version. Advisories older than
-# 7 days are ignored, so enabling a source posts at most last week's.
+# 7 days are not posted, so enabling a source posts at most last week's
+# (older ones get one "expired" warning in the journal). Use source package
+# names, not binary ones (php8.3, not php8.3-fpm; openssl, not libssl3).
 # Package names are distro-specific (php8.3 on Ubuntu 24.04, php8.4 on
 # Debian 13). URL overrides follow the drupal_security.feed_url rules.
 #

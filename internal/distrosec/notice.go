@@ -35,6 +35,9 @@ type Notice struct {
 	rawHTML    bool // rawDesc is the DSA's HTML description
 	rawContext []string
 	analyzed   bool
+	// binaries are the notice's binary package names (Ubuntu), used only
+	// to tell an operator who listed a binary name to list its source.
+	binaries []string
 }
 
 // Analyze fills Paragraphs and Assessment from the advisory text the parser
