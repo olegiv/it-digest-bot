@@ -181,15 +181,12 @@ func expiredRender(context.Context) (*releasewatch.Announcement, error) {
 	return nil, releasewatch.Deferf("expired advisory")
 }
 
-// fixedFor keeps the "pkg version" entries of the matched packages.
-func fixedFor(fixed, matched []string) []string {
-	var out []string
+// fixedFor keeps the fixed versions of the matched packages.
+func fixedFor(fixed []FixedVersion, matched []string) []FixedVersion {
+	var out []FixedVersion
 	for _, f := range fixed {
-		for _, m := range matched {
-			if len(f) > len(m) && f[:len(m)] == m && f[len(m)] == ' ' {
-				out = append(out, f)
-				break
-			}
+		if slices.Contains(matched, f.Package) {
+			out = append(out, f)
 		}
 	}
 	return out

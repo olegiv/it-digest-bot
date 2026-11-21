@@ -50,7 +50,16 @@ and this project adheres to [Semantic Versioning 2.0.0](https://semver.org/spec/
 - Source-package and Ubuntu-release validation live in the new leaf
   package `internal/pkgname`, shared by `internal/config` and
   `internal/distrosec` (DSA titles included), so config and feeds apply
-  the same rules.
+  the same rules. Source package names must be 2 to 64 bytes, as Debian
+  policy requires (a one-character name in a package list is now a
+  config error). `DefaultUbuntuRelease` is defined once, in `pkgname`.
+- distrosec types: `Notice.Family` (Ubuntu/Debian) decides wording,
+  hashtag and update command instead of prefix checks on the display
+  label and ID; fixed versions are `FixedVersion{Package, Version}`
+  values instead of "pkg version" strings; impact labels are shared
+  `Impact*` constants; the exported `ValidPackageName` /
+  `ValidUbuntuRelease` wrappers are gone (callers use `pkgname`). The
+  config structs gain `Enabled()`, used by `watch` and `config-check`.
 - Ubuntu/Debian security sources only decode the feeds; HTML-to-text,
   paragraph cleaning and classification run for advisories that touch a
   watched package. The Ubuntu notices response limit is 16 MiB (a page is

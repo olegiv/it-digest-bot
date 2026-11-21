@@ -22,8 +22,8 @@ const (
 	DefaultUbuntuNoticesURL = "https://ubuntu.com/security/notices.json"
 	// UbuntuNoticePageURL is the base of a notice's human page.
 	UbuntuNoticePageURL = "https://ubuntu.com/security/notices/"
-	// DefaultUbuntuRelease is Ubuntu 24.04 LTS.
-	DefaultUbuntuRelease = "noble"
+	// DefaultUbuntuRelease is Ubuntu 24.04 LTS (pkgname.DefaultUbuntuRelease).
+	DefaultUbuntuRelease = pkgname.DefaultUbuntuRelease
 
 	// UbuntuPageSize is the API maximum per request.
 	UbuntuPageSize = 20
@@ -43,10 +43,6 @@ var (
 	usnIDRe         = regexp.MustCompile(`^USN-\d{1,6}-\d{1,3}$`)
 	ubuntuVersionRe = regexp.MustCompile(`^\d{2}\.\d{2}$`)
 )
-
-// ValidUbuntuRelease reports whether s looks like an Ubuntu release codename
-// ("noble").
-func ValidUbuntuRelease(s string) bool { return pkgname.ValidUbuntuRelease(s) }
 
 // UbuntuClient reads Ubuntu Security Notices for one release.
 type UbuntuClient struct {
@@ -241,6 +237,7 @@ func ParseUbuntuNotices(body []byte, release string) ([]Notice, []string, int, e
 func ubuntuNotice(id string, raw *usnJSON, release string, refs []usnPackageRef) Notice {
 	n := Notice{
 		ID:         id,
+		Family:     FamilyUbuntu,
 		Distro:     ubuntuLabel(raw.Releases, release),
 		Title:      cleanLine(plainText(raw.Title), 200),
 		CVEs:       validCVEs(raw.CVEIDs),
@@ -255,7 +252,7 @@ func ubuntuNotice(id string, raw *usnJSON, release string, refs []usnPackageRef)
 	proOnly, binaries := true, 0
 	for _, ref := range refs {
 		name := strings.TrimSpace(ref.Name)
-		if !ValidPackageName(name) {
+		if !pkgname.ValidSourcePackage(name) {
 			continue
 		}
 		if ref.IsSource {
@@ -280,7 +277,7 @@ func ubuntuNotice(id string, raw *usnJSON, release string, refs []usnPackageRef)
 	n.ProOnly = binaries > 0 && proOnly
 	for _, p := range n.Packages {
 		if v, ok := sources[p]; ok {
-			n.Fixed = append(n.Fixed, p+" "+v)
+			n.Fixed = append(n.Fixed, FixedVersion{Package: p, Version: v})
 		}
 	}
 	return n

@@ -52,12 +52,12 @@ the first problem. Useful for vetting a config edit before systemctl start.`,
 				phpAdvisories = phpsec.DefaultAPIURL + " (default)"
 			}
 			ubuntuSec := "disabled (no packages)"
-			if u := cfg.UbuntuSecurity; len(u.Packages) > 0 {
+			if u := cfg.UbuntuSecurity; u.Enabled() {
 				ubuntuSec = fmt.Sprintf("%s, %d packages", u.Release, len(u.Packages))
 			}
 			debianSec := "disabled (no packages)"
-			if n := len(cfg.DebianSecurity.Packages); n > 0 {
-				debianSec = fmt.Sprintf("%d packages", n)
+			if d := cfg.DebianSecurity; d.Enabled() {
+				debianSec = fmt.Sprintf("%d packages", len(d.Packages))
 			}
 			_, _ = fmt.Fprintf(cmd.OutOrStdout(),
 				"config OK\n"+

@@ -352,3 +352,16 @@ feed_url = "http://127.0.0.1:9000/dsa.rdf"
 		}
 	}
 }
+
+func TestDistroSecurityEnabled(t *testing.T) {
+	t.Parallel()
+	if (UbuntuSecurityConfig{Release: "noble"}).Enabled() || !(UbuntuSecurityConfig{Packages: []string{"nginx"}}).Enabled() {
+		t.Error("UbuntuSecurityConfig.Enabled: only with a package list")
+	}
+	if (DebianSecurityConfig{FeedURL: "https://x"}).Enabled() || !(DebianSecurityConfig{Packages: []string{"nginx"}}).Enabled() {
+		t.Error("DebianSecurityConfig.Enabled: only with a package list")
+	}
+	if DefaultUbuntuRelease != "noble" {
+		t.Errorf("DefaultUbuntuRelease = %q", DefaultUbuntuRelease)
+	}
+}

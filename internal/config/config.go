@@ -94,8 +94,14 @@ type UbuntuSecurityConfig struct {
 	NoticesURL string   `toml:"notices_url"`
 }
 
-// DefaultUbuntuRelease is Ubuntu 24.04 LTS.
-const DefaultUbuntuRelease = "noble"
+// DefaultUbuntuRelease is Ubuntu 24.04 LTS (pkgname.DefaultUbuntuRelease).
+const DefaultUbuntuRelease = pkgname.DefaultUbuntuRelease
+
+// Enabled reports whether the Ubuntu source runs: only with a package list.
+func (c UbuntuSecurityConfig) Enabled() bool { return len(c.Packages) > 0 }
+
+// Enabled reports whether the Debian source runs: only with a package list.
+func (c DebianSecurityConfig) Enabled() bool { return len(c.Packages) > 0 }
 
 // DebianSecurityConfig enables Debian Security Advisory alerts in
 // `digest watch`, like UbuntuSecurityConfig: the source runs only when

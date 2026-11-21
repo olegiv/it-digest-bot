@@ -63,7 +63,7 @@ func FormatNotice(n *Notice) string {
 		}
 		parts := make([]string, 0, len(fixed))
 		for _, f := range fixed {
-			parts = append(parts, "`"+capEscaped(telegram.EscapeMarkdownV2Code(f), maxFixedBytes)+"`")
+			parts = append(parts, "`"+capEscaped(telegram.EscapeMarkdownV2Code(f.String()), maxFixedBytes)+"`")
 		}
 		fmt.Fprintf(&sb, "🛠 Fixed in: %s\n", strings.Join(parts, ", "))
 	}
@@ -71,7 +71,7 @@ func FormatNotice(n *Notice) string {
 		sb.WriteString("⚠️ The fix is published for Ubuntu Pro only \\(ESM, FIPS or real\\-time kernel\\)\n")
 	}
 	hint := updateDebianHint
-	if strings.HasPrefix(n.Distro, "Ubuntu") {
+	if n.Family == FamilyUbuntu {
 		hint = updateUbuntuHint
 	}
 	fmt.Fprintf(&sb, "Update: `%s`\n", telegram.EscapeMarkdownV2Code(hint))
@@ -102,7 +102,7 @@ func kindWord(n *Notice) string {
 	if n.Regression {
 		return "regression fix"
 	}
-	if strings.HasPrefix(n.ID, "DSA-") {
+	if n.Family == FamilyDebian {
 		return "advisory"
 	}
 	return "notice"
@@ -112,13 +112,13 @@ func kindWord(n *Notice) string {
 // code execution 🔴, anything remote, code execution or privilege
 // escalation 🟠, the rest 🟡.
 func severityEmoji(n *Notice) string {
-	codeExec := slices.Contains(n.Impacts, "code execution")
+	codeExec := slices.Contains(n.Impacts, ImpactCodeExec)
 	switch {
 	case n.Regression:
 		return "♻️"
 	case n.Remote && codeExec:
 		return "🔴"
-	case n.Remote || codeExec || slices.Contains(n.Impacts, "privilege escalation"):
+	case n.Remote || codeExec || slices.Contains(n.Impacts, ImpactPrivEsc):
 		return "🟠"
 	default:
 		return "🟡"
@@ -126,11 +126,11 @@ func severityEmoji(n *Notice) string {
 }
 
 func hashtags(n *Notice) string {
-	distro := "Debian"
-	if strings.HasPrefix(n.Distro, "Ubuntu") {
-		distro = "Ubuntu"
+	family := FamilyDebian
+	if n.Family == FamilyUbuntu {
+		family = FamilyUbuntu
 	}
-	return "\\#" + distro + " \\#Security"
+	return "\\#" + family.String() + " \\#Security"
 }
 
 func codeList(items []string, limit int) string {

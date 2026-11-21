@@ -14,6 +14,7 @@ import (
 	"golang.org/x/net/html/atom"
 
 	"github.com/olegiv/it-digest-bot/internal/httpx"
+	"github.com/olegiv/it-digest-bot/internal/pkgname"
 )
 
 const (
@@ -34,7 +35,7 @@ const (
 
 // dsaTitleRe matches "DSA-6642-1 nginx - security update" and
 // "DSA-6637-2 needrestart - regression update".
-// The package token is checked with ValidPackageName (pkgname), the rule
+// The package token is checked with pkgname.ValidSourcePackage, the rule
 // the config applies to watched package lists.
 var dsaTitleRe = regexp.MustCompile(`^(DSA-\d{1,6}-\d{1,3})\s+(\S{1,64})\s+-\s+([A-Za-z ]{1,40})$`)
 
@@ -48,11 +49,11 @@ var dsaLooseTitleRe = regexp.MustCompile(`^(DSA-\d{1,6}-\d{1,3})\s+(\S{1,64})(?:
 // when the title only matched the loose form, whose kind is cleaned and
 // shortened rest-of-title text.
 func dsaTitle(title string) (id, pkg, kind string, ok, strict bool) {
-	if m := dsaTitleRe.FindStringSubmatch(title); m != nil && ValidPackageName(m[2]) {
+	if m := dsaTitleRe.FindStringSubmatch(title); m != nil && pkgname.ValidSourcePackage(m[2]) {
 		return m[1], m[2], strings.ToLower(strings.TrimSpace(m[3])), true, true
 	}
 	m := dsaLooseTitleRe.FindStringSubmatch(title)
-	if m == nil || !ValidPackageName(m[2]) {
+	if m == nil || !pkgname.ValidSourcePackage(m[2]) {
 		return "", "", "", false, false
 	}
 	kind = strings.ToLower(cleanLine(plainText(strings.TrimLeft(m[3], "-– ")), 60))
@@ -151,6 +152,7 @@ func ParseDebianFeed(body []byte) ([]Notice, []string, error) {
 		seen[id] = true
 		n := Notice{
 			ID:         id,
+			Family:     FamilyDebian,
 			Distro:     DebianDistro,
 			Title:      pkg + " - " + kind,
 			Packages:   []string{pkg},

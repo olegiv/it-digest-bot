@@ -9,23 +9,51 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/olegiv/it-digest-bot/internal/pkgname"
 	"github.com/olegiv/it-digest-bot/internal/telegram"
 )
 
+// Family is the distribution an advisory comes from. It decides wording,
+// hashtag and update command; Notice.Distro is only the display label.
+type Family uint8
+
+const (
+	FamilyUbuntu Family = iota + 1
+	FamilyDebian
+)
+
+func (f Family) String() string {
+	switch f {
+	case FamilyUbuntu:
+		return "Ubuntu"
+	case FamilyDebian:
+		return "Debian"
+	default:
+		return "unknown"
+	}
+}
+
+// FixedVersion is the source package version that fixes an advisory.
+type FixedVersion struct {
+	Package string // source package, "nginx"
+	Version string // "1.24.0-2ubuntu7.21"
+}
+
+func (f FixedVersion) String() string { return f.Package + " " + f.Version }
+
 // Notice is one security advisory, normalized across distributions.
 type Notice struct {
-	ID         string    // "USN-9182-1", "DSA-6642-1"; the releases_seen version
-	Distro     string    // "Ubuntu 24.04 LTS", "Debian"
-	Title      string    // "nginx vulnerabilities", "nginx - security update"
-	Packages   []string  // source packages the notice covers, in notice order
-	Fixed      []string  // "nginx 1.24.0-2ubuntu7.21" per source package; Source narrows it to watched ones
-	CVEs       []string  // valid CVE IDs, in notice order
-	Paragraphs []string  // cleaned description paragraphs
-	Published  time.Time // zero when missing or unparsable
-	Link       string    // canonical advisory page, built from the validated ID
-	ProOnly    bool      // Ubuntu: every binary of the fix is in an Ubuntu Pro pocket (ESM, FIPS, real-time)
-	Regression bool      // a follow-up that fixes a regression of an earlier update
+	ID         string         // "USN-9182-1", "DSA-6642-1"; the releases_seen version
+	Family     Family         // set by the parser
+	Distro     string         // display label: "Ubuntu 24.04 LTS", "Debian"
+	Title      string         // "nginx vulnerabilities", "nginx - security update"
+	Packages   []string       // source packages the notice covers, in notice order
+	Fixed      []FixedVersion // per source package; Source narrows it to watched ones
+	CVEs       []string       // valid CVE IDs, in notice order
+	Paragraphs []string       // cleaned description paragraphs
+	Published  time.Time      // zero when missing or unparsable
+	Link       string         // canonical advisory page, built from the validated ID
+	ProOnly    bool           // Ubuntu: every binary of the fix is in an Ubuntu Pro pocket (ESM, FIPS, real-time)
+	Regression bool           // a follow-up that fixes a regression of an earlier update
 	Assessment
 
 	// Raw advisory text, kept by the parsers so that the costly part
@@ -63,10 +91,6 @@ var (
 	// use letters, digits and ".+~:-".
 	versionRe = regexp.MustCompile(`^[A-Za-z0-9.+~:\-]{1,80}$`)
 )
-
-// ValidPackageName reports whether s is a valid Debian/Ubuntu source
-// package name; see pkgname.ValidSourcePackage, which config uses too.
-func ValidPackageName(s string) bool { return pkgname.ValidSourcePackage(s) }
 
 // paragraphs splits advisory text on blank lines and cleans each paragraph
 // (plainText), dropping empty ones.

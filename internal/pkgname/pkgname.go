@@ -6,14 +6,19 @@ package pkgname
 
 import "regexp"
 
+// DefaultUbuntuRelease is the Ubuntu release watched when none is
+// configured: 24.04 LTS. config and distrosec both refer to it.
+const DefaultUbuntuRelease = "noble"
+
 var (
-	sourcePackageRe = regexp.MustCompile(`^[a-z0-9][a-z0-9+.\-]{0,63}$`)
+	sourcePackageRe = regexp.MustCompile(`^[a-z0-9][a-z0-9+.\-]{1,63}$`)
 	ubuntuReleaseRe = regexp.MustCompile(`^[a-z]{3,20}$`)
 )
 
 // ValidSourcePackage reports whether s is a valid Debian/Ubuntu source
-// package name: lowercase letters, digits, "+", "-" and ".", starting with a
-// letter or digit, at most 64 bytes ("nginx", "php8.4", "postgresql-17").
+// package name per Debian policy: lowercase letters, digits, "+", "-" and
+// ".", starting with a letter or digit, 2 to 64 bytes ("nginx", "php8.4",
+// "postgresql-17").
 func ValidSourcePackage(s string) bool { return sourcePackageRe.MatchString(s) }
 
 // ValidUbuntuRelease reports whether s looks like an Ubuntu release

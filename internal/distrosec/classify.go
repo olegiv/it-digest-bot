@@ -13,13 +13,26 @@ import (
 	"strings"
 )
 
+// Impact labels, in the order Assess reports them. FormatNotice ranks
+// severity by ImpactCodeExec and ImpactPrivEsc.
+const (
+	ImpactCodeExec     = "code execution"
+	ImpactPrivEsc      = "privilege escalation"
+	ImpactAuthBypass   = "authentication bypass"
+	ImpactInfoLeak     = "information disclosure"
+	ImpactXSS          = "cross-site scripting"
+	ImpactSmuggling    = "HTTP request smuggling"
+	ImpactSpoofing     = "spoofing"
+	ImpactSQLInjection = "SQL injection"
+	ImpactDoS          = "denial of service"
+)
+
 // Assessment is what the advisory text says about exposure and impact.
 type Assessment struct {
 	// Remote is set when the text names a remote attacker, crafted input or
 	// a web-facing impact (request smuggling, XSS, SSRF, …).
 	Remote bool
-	// Impacts are normalized impact labels in a fixed order, e.g.
-	// "code execution", "denial of service".
+	// Impacts are Impact* labels in a fixed order.
 	Impacts []string
 }
 
@@ -40,15 +53,15 @@ var (
 		label string
 		re    *regexp.Regexp
 	}{
-		{"code execution", regexp.MustCompile(`(?i)(execut\w* (of )?arbitrary (code|commands)|remote code execution|run (arbitrary )?programs|code execution)`)},
-		{"privilege escalation", regexp.MustCompile(`(?i)privilege escalation|escalate privileges|gain (root|elevated|administrative) privileges`)},
-		{"authentication bypass", regexp.MustCompile(`(?i)(authentication|verification|access|security|signature|revocation)[\w ]{0,30}bypass|bypass(ing)? [\w ]{0,30}(authentication|verification|restrictions|checks|protections)|incorrect authentication|authenticated .{0,40}contrary`)},
-		{"information disclosure", regexp.MustCompile(`(?i)information (disclosure|leaks?)|(obtain|expose|leak)\w* (sensitive )?information|sensitive information`)},
-		{"cross-site scripting", regexp.MustCompile(`(?i)cross-site scripting|\bXSS\b`)},
-		{"HTTP request smuggling", regexp.MustCompile(`(?i)request smuggling`)},
-		{"spoofing", regexp.MustCompile(`(?i)spoof`)},
-		{"SQL injection", regexp.MustCompile(`(?i)SQL injection`)},
-		{"denial of service", regexp.MustCompile(`(?i)denial of service|\bcrash\b|resource consumption`)},
+		{ImpactCodeExec, regexp.MustCompile(`(?i)(execut\w* (of )?arbitrary (code|commands)|remote code execution|run (arbitrary )?programs|code execution)`)},
+		{ImpactPrivEsc, regexp.MustCompile(`(?i)privilege escalation|escalate privileges|gain (root|elevated|administrative) privileges`)},
+		{ImpactAuthBypass, regexp.MustCompile(`(?i)(authentication|verification|access|security|signature|revocation)[\w ]{0,30}bypass|bypass(ing)? [\w ]{0,30}(authentication|verification|restrictions|checks|protections)|incorrect authentication|authenticated .{0,40}contrary`)},
+		{ImpactInfoLeak, regexp.MustCompile(`(?i)information (disclosure|leaks?)|(obtain|expose|leak)\w* (sensitive )?information|sensitive information`)},
+		{ImpactXSS, regexp.MustCompile(`(?i)cross-site scripting|\bXSS\b`)},
+		{ImpactSmuggling, regexp.MustCompile(`(?i)request smuggling`)},
+		{ImpactSpoofing, regexp.MustCompile(`(?i)spoof`)},
+		{ImpactSQLInjection, regexp.MustCompile(`(?i)SQL injection`)},
+		{ImpactDoS, regexp.MustCompile(`(?i)denial of service|\bcrash\b|resource consumption`)},
 	}
 )
 

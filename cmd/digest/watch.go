@@ -137,13 +137,13 @@ func phpSecuritySource(cfg *config.Config, h *httpx.Client, log *slog.Logger) *p
 // sources. Each is opt-in: it runs only when its package list is set.
 func distroSecuritySources(cfg *config.Config, h *httpx.Client, log *slog.Logger) []releasewatch.Source {
 	var out []releasewatch.Source
-	if u := cfg.UbuntuSecurity; len(u.Packages) > 0 {
+	if u := cfg.UbuntuSecurity; u.Enabled() {
 		client := distrosec.NewUbuntuClient(h, u.Release).SetURL(u.NoticesURL)
 		src := distrosec.NewUbuntuSource(client, u.Packages)
 		src.Logger = log
 		out = append(out, src)
 	}
-	if d := cfg.DebianSecurity; len(d.Packages) > 0 {
+	if d := cfg.DebianSecurity; d.Enabled() {
 		client := distrosec.NewDebianClient(h).SetURL(d.FeedURL)
 		src := distrosec.NewDebianSource(client, d.Packages)
 		src.Logger = log

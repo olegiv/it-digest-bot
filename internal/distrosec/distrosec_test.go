@@ -10,6 +10,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -108,7 +109,8 @@ func TestParseUbuntuNotices(t *testing.T) {
 	}
 	nginx := byID["USN-9182-1"]
 	if !nginx.Remote || len(nginx.CVEs) != 3 ||
-		strings.Join(nginx.Fixed, ",") != "nginx 1.24.0-2ubuntu7.21" || strings.Join(nginx.Packages, ",") != "nginx" {
+		!slices.Equal(nginx.Fixed, []FixedVersion{{Package: "nginx", Version: "1.24.0-2ubuntu7.21"}}) || strings.Join(nginx.Packages, ",") != "nginx" ||
+		nginx.Family != FamilyUbuntu {
 		t.Errorf("nginx notice = %+v", nginx)
 	}
 	if !byID["USN-9183-1"].ProOnly || byID["USN-9173-1"].ProOnly {
@@ -451,10 +453,11 @@ func TestFormatNoticeEscapesAndBounds(t *testing.T) {
 	huge := strings.Repeat("_*[]()~`>#+-=|{}.!\\ ", 600)
 	n := &Notice{
 		ID:         "USN-1-1",
+		Family:     FamilyUbuntu,
 		Distro:     "Ubuntu 24.04 LTS",
 		Title:      huge,
 		Packages:   []string{"a", "b", "c", "d", "e", "f", "g", "h", "i", "j"},
-		Fixed:      []string{huge, huge, huge, huge, huge, huge, huge, huge},
+		Fixed:      slices.Repeat([]FixedVersion{{Package: "p", Version: huge}}, 8),
 		Paragraphs: paragraphs(huge + "\n\n" + huge + "\n\n[click](https://evil.example) `x`"),
 		Link:       UbuntuNoticePageURL + "USN-1-1",
 		ProOnly:    true,
@@ -485,7 +488,7 @@ func TestFormatNoticeEscapesAndBounds(t *testing.T) {
 	if strings.Contains(FormatNotice(n), "Ubuntu Pro") {
 		t.Error("Pro-only line shown for a regular fix")
 	}
-	reg := FormatNotice(&Notice{ID: "DSA-1-2", Distro: DebianDistro, Regression: true, Link: DebianTrackerURL + "DSA-1-2"})
+	reg := FormatNotice(&Notice{ID: "DSA-1-2", Family: FamilyDebian, Distro: DebianDistro, Regression: true, Link: DebianTrackerURL + "DSA-1-2"})
 	if !strings.HasPrefix(reg, "♻️ *Debian security regression fix*") || !strings.Contains(reg, "`apt update && apt upgrade`") {
 		t.Errorf("regression post:\n%s", reg)
 	}
@@ -673,10 +676,10 @@ func TestFormatNoticeUTF8Caps(t *testing.T) {
 		for _, r := range []string{"é", "日", "🔒"} {
 			long := strings.Repeat("a", pad) + strings.Repeat(r, 400)
 			n := &Notice{
-				ID: "USN-1-1", Distro: "Ubuntu 24.04 LTS", Link: UbuntuNoticePageURL + "USN-1-1",
+				ID: "USN-1-1", Family: FamilyUbuntu, Distro: "Ubuntu 24.04 LTS", Link: UbuntuNoticePageURL + "USN-1-1",
 				Title:      long,
 				Packages:   []string{"nginx"},
-				Fixed:      []string{"nginx " + long},
+				Fixed:      []FixedVersion{{Package: "nginx", Version: long}},
 				Paragraphs: []string{long},
 			}
 			got := FormatNotice(n)
@@ -692,9 +695,25 @@ func TestFormatNoticeUTF8Caps(t *testing.T) {
 
 func TestFixedFor(t *testing.T) {
 	t.Parallel()
-	got := fixedFor([]string{"linux 1", "linux-aws 2", "nginx 3"}, []string{"linux", "nginx"})
-	if strings.Join(got, ",") != "linux 1,nginx 3" {
+	got := fixedFor([]FixedVersion{{"linux", "1"}, {"linux-aws", "2"}, {"nginx", "3"}}, []string{"linux", "nginx"})
+	if !slices.Equal(got, []FixedVersion{{"linux", "1"}, {"nginx", "3"}}) {
 		t.Errorf("fixedFor = %v", got)
+	}
+}
+
+// TestTypes: Family and FixedVersion render as the posts expect, and an
+// unset Family formats as Debian, the previous default.
+func TestTypes(t *testing.T) {
+	t.Parallel()
+	if FamilyUbuntu.String() != "Ubuntu" || FamilyDebian.String() != "Debian" || Family(0).String() != "unknown" {
+		t.Error("Family.String")
+	}
+	if (FixedVersion{"nginx", "1.2"}).String() != "nginx 1.2" {
+		t.Error("FixedVersion.String")
+	}
+	post := FormatNotice(&Notice{ID: "DSA-1-1", Distro: "X", Link: DebianTrackerURL + "DSA-1-1"})
+	if !strings.HasSuffix(post, "\\#Debian \\#Security") || !strings.Contains(post, "`apt update && apt upgrade`") {
+		t.Errorf("zero Family:\n%s", post)
 	}
 }
 
@@ -909,7 +928,7 @@ func TestDebianTitlePackageValidated(t *testing.T) {
 	if err != nil || len(notices) != 1 || notices[0].ID != "DSA-2-1" || len(warnings) != 1 {
 		t.Errorf("notices %+v warnings %v err %v", notices, warnings, err)
 	}
-	if ValidPackageName("NGINX") || !ValidUbuntuRelease("noble") {
-		t.Error("distrosec validators must match pkgname")
+	if notices[0].Family != FamilyDebian {
+		t.Errorf("family = %v", notices[0].Family)
 	}
 }

@@ -6,7 +6,7 @@ func TestValidSourcePackage(t *testing.T) {
 	t.Parallel()
 	for s, want := range map[string]bool{
 		"nginx": true, "php8.4": true, "postgresql-17": true, "libapache2-mod-php8.4": true,
-		"g++-14": true, "0ad": true,
+		"g++-14": true, "0ad": true, "xz": true, "a": false, "7": false,
 		"": false, "NGINX": false, "-nginx": false, ".x": false, "php8.4; rm -rf /": false,
 		"a b": false, "nginx\n": false, string(make([]byte, 65)): false,
 	} {
