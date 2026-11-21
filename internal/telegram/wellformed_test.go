@@ -192,3 +192,61 @@ func TestLinkRemovalCannotGlueNewLinks(t *testing.T) {
 		}
 	}
 }
+
+func TestStripBareLinks(t *testing.T) {
+	t.Parallel()
+	php := func(u string) bool { return strings.HasPrefix(u, "https://www.php.net/") }
+	for _, tc := range []struct{ in, want string }{
+		{"See https://evil.example/x for details.", "See  for details."},
+		{"Fixed in https://www.php.net/ChangeLog-8.php.", "Fixed in https://www.php.net/ChangeLog-8.php."},
+		{"[click](https://evil.example) `tg://join`", "[click]() ``"},
+		{"tg:/https://evil.example/ /evil", "tg:/ /evil"},
+		{"go www.evil.example now", "go  now"},
+		{"no links here", "no links here"},
+	} {
+		if got := StripBareLinks(tc.in, php); got != tc.want {
+			t.Errorf("StripBareLinks(%q) = %q, want %q", tc.in, got, tc.want)
+		}
+	}
+	if got := StripBareLinks("a https://www.php.net/x b", nil); got != "a  b" {
+		t.Errorf("nil policy = %q", got)
+	}
+}
+
+// FuzzStripBareLinks checks the properties posts rely on: no bare link
+// token survives unless allowed, a second pass changes nothing (removals
+// cannot glue a new link together), nothing is added, and the result
+// plain-escapes to well-formed MarkdownV2.
+func FuzzStripBareLinks(f *testing.F) {
+	for _, seed := range []string{
+		"see https://evil.example/x now", "www.evil.example", "tg:[//evil](x)",
+		"httpshttps://://evil", "https://ok.example/a https://evil", "a www.b www.c", "plain",
+	} {
+		f.Add(seed)
+	}
+	allowOK := func(u string) bool { return strings.HasPrefix(u, "https://ok.example/") }
+	f.Fuzz(func(t *testing.T, in string) {
+		for name, allow := range map[string]func(string) bool{"deny": nil, "allow": allowOK} {
+			out := StripBareLinks(in, allow)
+			if len(out) > len(in) {
+				t.Fatalf("%s: output grew: %q -> %q", name, in, out)
+			}
+			if again := StripBareLinks(out, allow); again != out {
+				t.Fatalf("%s: not idempotent: %q -> %q -> %q", name, in, out, again)
+			}
+			// Scan as Telegram does: a link token is one unit, so the path
+			// of an allowed URL is not searched for further tokens.
+			for i := 0; i < len(out); i++ {
+				if end := bareLinkAt(out, i); end > i {
+					if tok := out[i:end]; allow == nil || !allowBare(tok, allow) {
+						t.Fatalf("%s: link token %q survived in %q (input %q)", name, tok, out, in)
+					}
+					i = end - 1
+				}
+			}
+			if esc := EscapeMarkdownV2Plain(out); !WellFormedMarkdownV2(esc) {
+				t.Fatalf("%s: %q escapes to malformed %q", name, out, esc)
+			}
+		}
+	})
+}

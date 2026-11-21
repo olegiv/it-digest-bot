@@ -221,6 +221,57 @@ func TestRunnerDefersCleanly(t *testing.T) {
 	}
 }
 
+// TestRunnerRecordsExpiredWithoutPosting: an unseen expired candidate is
+// recorded without a message and never rendered, takes no send slot even
+// when the cap is reached, and an expired candidate already seen stays seen.
+func TestRunnerRecordsExpiredWithoutPosting(t *testing.T) {
+	t.Parallel()
+
+	st := openStore(t)
+	ctx := context.Background()
+	if err := st.Releases.RecordSeen(ctx, "pkg", "0.9", 55, ""); err != nil {
+		t.Fatal(err)
+	}
+	rendered := 0
+	expired := func(version string) Candidate {
+		return Candidate{
+			Package: "pkg", Version: version, URL: "https://example.com/" + version,
+			Expired: "too old",
+			Render: func(context.Context) (*Announcement, error) {
+				rendered++
+				return announcement("pkg", version), nil
+			},
+		}
+	}
+	bot := &fakeSender{}
+	r := &Runner{
+		Sources:        []Source{fakeSource{name: "src", candidates: []Candidate{expired("0.9"), candidate("src", "pkg", "1.0"), expired("0.8")}}},
+		Channel:        "@ch",
+		Bot:            bot,
+		Releases:       st.Releases,
+		Posts:          st.Posts,
+		MaxPostsPerRun: 1,
+	}
+	res, err := r.Run(ctx)
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	var got []string
+	for _, item := range res.Items {
+		got = append(got, item.Version+"="+item.Outcome.String())
+	}
+	if strings.Join(got, ",") != "0.9=seen,1.0=posted,0.8=expired" || rendered != 0 || bot.calls != 1 {
+		t.Fatalf("items %v rendered %d sends %d", got, rendered, bot.calls)
+	}
+	rel, err := st.Releases.GetLatestSeen(ctx, "pkg")
+	if err != nil || rel == nil {
+		t.Fatalf("latest seen: %+v %v", rel, err)
+	}
+	if seen, _ := st.Releases.HasSeen(ctx, "pkg", "0.8"); !seen {
+		t.Error("expired candidate not recorded")
+	}
+}
+
 func TestRunnerContinuesAfterSourceError(t *testing.T) {
 	t.Parallel()
 
@@ -920,7 +971,7 @@ func TestOutcomeString(t *testing.T) {
 	t.Parallel()
 	for o, want := range map[Outcome]string{
 		OutcomeError: "error", OutcomePosted: "posted", OutcomeSeen: "seen",
-		OutcomeDeferred: "deferred", OutcomeSeeded: "seeded", OutcomeCapped: "capped", OutcomeRendered: "rendered", Outcome(42): "outcome(42)",
+		OutcomeDeferred: "deferred", OutcomeSeeded: "seeded", OutcomeCapped: "capped", OutcomeRendered: "rendered", OutcomeExpired: "expired", Outcome(42): "outcome(42)",
 	} {
 		if got := o.String(); got != want {
 			t.Errorf("Outcome(%d).String() = %q, want %q", uint8(o), got, want)

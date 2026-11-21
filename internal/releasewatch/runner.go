@@ -68,8 +68,14 @@ type Candidate struct {
 	Version string
 	// URL is optional. It is stored as release_url when a Seeder records
 	// history without rendering; normal posts take the URL from Announcement.
-	URL    string
-	Render RenderFunc
+	URL string
+	// Expired, when set, says why this candidate will never be posted (it
+	// aged out of the source's window). An unseen expired candidate is
+	// recorded as seen without a message and logged once at Warn, so a
+	// release that was never announced leaves a trace instead of vanishing.
+	// It takes no send slot and is not rendered.
+	Expired string
+	Render  RenderFunc
 }
 
 // Seeder is an optional Source extension for upstreams whose listing is a
@@ -149,9 +155,10 @@ const (
 	OutcomeSeeded                  // recorded as history on a source's first run, not posted
 	OutcomeCapped                  // unseen, but left for a later run because MaxPostsPerRun was reached
 	OutcomeRendered                // dry run: announcement rendered to DryOut, nothing sent or recorded
+	OutcomeExpired                 // never posted: recorded as seen without a message (Candidate.Expired)
 )
 
-var outcomeNames = [...]string{"error", "posted", "seen", "deferred", "seeded", "capped", "rendered"}
+var outcomeNames = [...]string{"error", "posted", "seen", "deferred", "seeded", "capped", "rendered", "expired"}
 
 func (o Outcome) String() string {
 	if int(o) < len(outcomeNames) {
@@ -310,6 +317,10 @@ func (r *Runner) handleCandidate(ctx context.Context, cand Candidate, limitReach
 		return item, false, nil
 	}
 
+	if cand.Expired != "" {
+		return r.expire(ctx, cand, item, log)
+	}
+
 	// Checked after the seen lookup so only genuinely new releases count,
 	// and before Render so no upstream calls are spent on a capped item.
 	if limitReached {
@@ -379,6 +390,28 @@ func (r *Runner) handleCandidate(ctx context.Context, cand Candidate, limitReach
 		"version", cand.Version,
 		"message_id", msgID)
 	return item, true, nil
+}
+
+// expire records an unseen expired candidate as seen without posting it,
+// with one Warn line; later runs find it seen and stay quiet. A dry run only
+// logs.
+func (r *Runner) expire(ctx context.Context, cand Candidate, item ItemResult, log *slog.Logger) (ItemResult, bool, error) {
+	if !r.DryRun {
+		if err := r.Releases.RecordSeen(ctx, cand.Package, cand.Version, 0, cand.URL); err != nil {
+			return item, false, fmt.Errorf("record expired release %s %s: %w", cand.Package, cand.Version, err)
+		}
+	}
+	item.Outcome = OutcomeExpired
+	msg := "release never posted: expired; recorded as seen"
+	if r.DryRun {
+		msg = "dry-run: release never posted: expired; would be recorded as seen"
+	}
+	log.Warn(msg,
+		"source", cand.Source,
+		"package", cand.Package,
+		"version", cand.Version,
+		"reason", cand.Expired)
+	return item, false, nil
 }
 
 // seedIfFirstRun applies the Seeder contract. It returns true when the

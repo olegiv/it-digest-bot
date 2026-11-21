@@ -8,7 +8,7 @@
 [![Go version](https://img.shields.io/github/go-mod/go-version/olegiv/it-digest-bot?logo=go)](go.mod)
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
 
-Posts Claude Code, Go, PHP and stable iOS/macOS release announcements and new Drupal and PHP security advisories — plus daily AI news digests — to the Telegram channel [@it_digest_info](https://t.me/it_digest_info). Single static Go binary, scheduled by **systemd timers** on plain Ubuntu. No Docker, no web server, no long-running daemon.
+Posts Claude Code, Go, PHP and stable iOS/macOS release announcements and new Drupal and PHP security advisories (plus opt-in Ubuntu and Debian security advisories for chosen packages) — plus daily AI news digests — to the Telegram channel [@it_digest_info](https://t.me/it_digest_info). Single static Go binary, scheduled by **systemd timers** on plain Ubuntu. No Docker, no web server, no long-running daemon.
 
 ## Architecture
 
@@ -159,7 +159,7 @@ A third systemd timer handles **daily server-side backups** automatically — no
 
 | Command                 | What it does                                                       |
 |-------------------------|--------------------------------------------------------------------|
-| `digest watch`          | Check Claude Code, stable Go, PHP and stable iOS/macOS releases and new Drupal and PHP security advisories; post what is new. |
+| `digest watch`          | Check Claude Code, stable Go, PHP and stable iOS/macOS releases and new Drupal, PHP and (opt-in) Ubuntu/Debian security advisories; post what is new. |
 | `digest daily`          | Build and post the daily AI news digest via Claude.                |
 | `digest post --dry-run` | Render a sample release post to stdout without sending anything.   |
 | `digest migrate`        | Apply pending SQLite schema migrations.                            |
@@ -183,6 +183,11 @@ All non-secret settings live in `config.toml`. See [`config.example.toml`](./con
 | `[apple_releases]` | `feed_url`    | no       | `https://developer.apple.com/news/releases/rss/releases.rss` | Override only; same rules as `drupal_security.feed_url` |
 | `[php]`           | `releases_url` | no       | `https://www.php.net/releases/active.php` | Override only; same rules as `drupal_security.feed_url` |
 | `[php]`           | `advisories_url` | no     | `https://api.github.com/repos/php/php-src/security-advisories` | Override only; same rules as `drupal_security.feed_url`; `GITHUB_TOKEN` is sent only to `https://api.github.com` |
+| `[ubuntu_security]` | `packages`   | no       | — (disabled)             | Source packages to watch (`nginx`, `openssl`, `php8.3`, …); the Ubuntu source runs only when set |
+| `[ubuntu_security]` | `release`    | no       | `noble`                  | Ubuntu release codename (`noble` = 24.04 LTS) |
+| `[ubuntu_security]` | `notices_url` | no      | `https://ubuntu.com/security/notices.json` | Override only; same rules as `drupal_security.feed_url` |
+| `[debian_security]` | `packages`   | no       | — (disabled)             | Source packages to watch (`php8.4`, `postgresql-17`, …); the Debian source runs only when set |
+| `[debian_security]` | `feed_url`   | no       | `https://www.debian.org/security/dsa-long.rdf` | Override only; same rules as `drupal_security.feed_url` |
 | `[llm]`           | `model`        | phase 2  | —                       | Recommended: `claude-sonnet-5-5`; must be set explicitly |
 | `[llm]`           | `max_tokens`   | phase 2  | —                       | Recommended: `2048`; must be set explicitly |
 | `[llm]`           | `timeout_seconds` | no    | `120`                   | Per-request Anthropic timeout |
@@ -221,9 +226,23 @@ Stable iOS and macOS releases are always tracked too. `digest watch` reads the A
 PHP is tracked by two always-on sources that run in the same hourly `digest watch` pass as Go:
 
 - **Releases** (`releases_seen` package `php`): php.net's `releases/active.php` lists the latest release of every supported branch. Each new branch tip is posted with its branch status (first release of a new branch, current branch, or older branch), the release date, and links to the announcement, ChangeLog and downloads. Releases php.net tags as `security` are marked as security releases. A coordinated multi-branch release is posted oldest branch first.
-- **Security advisories** (`releases_seen` package `php-security`, keyed by GHSA ID): the PHP project publishes its advisories as GitHub security advisories on `php/php-src`. Each new published, non-withdrawn advisory is posted with severity and CVSS score, CVE, CWE, affected and fixed versions, and the first paragraph of the description. One unauthenticated request per hour fits GitHub's 60 requests/hour limit; `GITHUB_TOKEN` raises it.
+- **Security advisories** (`releases_seen` package `php-security`, keyed by GHSA ID): the PHP project publishes its advisories as GitHub security advisories on `php/php-src`. Each new published, non-withdrawn advisory is posted with severity and CVSS score, CVE, CWE, affected and fixed versions, and the first paragraph of the description; `scheme://…` and `www.…` links in the summary and excerpt are removed except https links to php.net and github.com/php/…, since Telegram would auto-link them; bare domains (`example.com`) are not removed. One unauthenticated request per hour fits GitHub's 60 requests/hour limit; `GITHUB_TOKEN` raises it. An empty advisory list from GitHub fails the run (php-src always has advisories), so the first-run baseline is only taken from a real list.
 
 Both PHP sources seed on their first run, like Drupal: the current branch tips and the published advisories are recorded as the baseline and one "now tracked" notice is posted per source.
+
+Ubuntu and Debian security advisories are opt-in and meant for the software your web servers run. Each source runs only when its `packages` list is set in `[ubuntu_security]` / `[debian_security]`:
+
+- **Ubuntu** (`releases_seen` package `usn-<release>`): Ubuntu Security Notices for the configured release (`noble` = 24.04 LTS) from `https://ubuntu.com/security/notices.json`, newest 40 per run.
+- **Debian** (package `dsa`): Debian Security Advisories from `https://www.debian.org/security/dsa-long.rdf`. Versioned names (`php8.4`, `postgresql-17`) select a release; unversioned ones (`nginx`, `openssl`, `linux`) match DSAs for every supported Debian release, since DSAs are not filtered by release.
+
+Every advisory that touches a watched source package is posted, local issues included. Neither feed carries CVSS vectors or priorities, so the post's labels are read from the security teams' consistent wording ("A remote attacker could …"); kernel subsystem lists ("Remote Processor subsystem") are not remote cues. Posts mark remotely exploitable issues and show the likely impact (code execution, privilege escalation, information disclosure, denial of service, …), whether the fix needs Ubuntu Pro, the update command and, for Ubuntu only, CVEs and the fixed version. `scheme://…` and `www.…` links in the advisory text are removed except https links to ubuntu.com and debian.org, since Telegram would auto-link them; bare domains are not removed. An Ubuntu fetch that returns no notice for the configured release fails the run, so an API change or a mistyped codename triggers the failure alert instead of silence. Advisories older than 7 days are not posted, so enabling a source or adding a package posts at most last week's advisories; there is no first-run baseline, because a filtered list is often empty and a baseline would swallow the first real alert. An older advisory that was never posted (sends kept failing, or the bot was down for more than a week) is recorded as seen with one `release never posted: expired` warning, so it leaves a trace instead of vanishing; enabling a source logs this once for each older advisory still in the feed. The lists take source package names (`nginx`, `php8.3`, `openssl`); a binary name such as `php8.3-fpm` or `libssl3` that appears in an Ubuntu notice is reported with a warning naming its source package. Diagnostics are warnings in the journal: notices without a source package, and DSA titles that do not have the usual `DSA-n-n package - kind` shape (such advisories are still posted). Posts go to the public channel; this is an accepted choice. Watch the latest Debian and Ubuntu releases with a broad list of the most commonly used server packages (the lists in `config.example.toml`) rather than a list that mirrors one server:
+
+- Every post is a public Ubuntu or Debian advisory; nothing in it is secret.
+- A broad list (nginx *and* apache2, mariadb *and* postgresql, both distros) does not tell an observer which of them a server runs.
+- Posts appear when an advisory is published, not when a server is patched, so they say nothing about whether a server is still vulnerable.
+- A web server's software is visible anyway (response headers, TLS, error pages), and attackers scan for exploits regardless.
+
+Keep niche packages that only one server uses off the lists: each post for them hints that you run them. The protection itself comes from patching quickly, so keep `unattended-upgrades` enabled on the servers and reboot after kernel updates.
 
 Secrets come from the environment only (never the TOML):
 
@@ -275,7 +294,7 @@ make tidy            # go mod tidy
 make fmt             # gofumpt -w .
 ```
 
-CI (GitHub Actions) runs build + vet + race tests + lint on every push and PR against `main`. A separate workflow runs `govulncheck` on every push and PR against `main` and weekly, since new advisories appear without code changes.
+CI (GitHub Actions) runs build + vet + race tests + lint on every push and PR against `main`. Dependabot opens one grouped PR per week for GitHub Actions and one for Go modules (`.github/dependabot.yml`); it leaves `modernc.org/libc` and `modernc.org/memory` alone because they must match `modernc.org/sqlite`. A separate workflow runs `govulncheck` on every push and PR against `main` and weekly, since new advisories appear without code changes.
 
 Test coverage targets (spec): ≥ 70% on `internal/claudecode`, `internal/telegram`, `internal/config`. Current (all above target):
 
@@ -283,18 +302,22 @@ Test coverage targets (spec): ≥ 70% on `internal/claudecode`, `internal/telegr
 |-------------------|----------|
 | applerelease      | ~92%     |
 | claudecode        | ~83%     |
-| config            | ~85%     |
-| digest            | ~85%     |
+| config            | ~89%     |
+| digest            | ~87%     |
+| distrosec         | ~97%     |
 | drupalsec         | ~98%     |
 | gorelease         | ~83%     |
-| httpx             | ~71%     |
+| httpx             | ~82%     |
 | llm               | ~88%     |
 | news              | ~91%     |
 | phprelease        | ~98%     |
 | phpsec            | ~96%     |
+| pkgname           | ~100%    |
 | releasewatch      | ~89%     |
 | store             | ~78%     |
-| telegram          | ~79%     |
+| strs              | ~100%    |
+| telegram          | ~92%     |
+| version           | ~100%    |
 
 ## Contributing
 

@@ -54,6 +54,45 @@ github_repo = "anthropics/claude-code"
 # releases_url   = "https://www.php.net/releases/active.php"
 # advisories_url = "https://api.github.com/repos/php/php-src/security-advisories"
 
+# Ubuntu and Debian security advisories for the software your web servers
+# run. Opt-in: each source runs only when `packages` lists source package
+# names. `digest watch` posts an Ubuntu Security Notice (USN) or Debian
+# Security Advisory (DSA) when it touches one of them, local issues
+# included; posts flag remotely exploitable issues and show the impact,
+# CVEs and (Ubuntu) fixed version. Advisories older than
+# 7 days are not posted, so enabling a source posts at most last week's
+# (older ones get one "expired" warning in the journal). Use source package
+# names, not binary ones (php8.3, not php8.3-fpm; openssl, not libssl3).
+# Package names are distro-specific (php8.3 on Ubuntu 24.04, php8.4 on
+# Debian 13); unversioned Debian names (nginx) match DSAs for every
+# supported Debian release. URL overrides follow the drupal_security.feed_url rules.
+#
+# Posts go to the public channel. Watch the latest releases with a broad
+# list of the most commonly used server packages, like the lists below,
+# rather than one that mirrors a single server: the advisories are public,
+# a broad list does not reveal which of the packages a server runs, and
+# posts say nothing about whether a server is patched. Keep niche packages
+# only one server uses off the list, and keep unattended-upgrades enabled
+# on the servers; patching is what protects them.
+[ubuntu_security]
+# release  = "noble"   # Ubuntu 24.04 LTS (default)
+# packages = [
+#   "nginx", "apache2", "haproxy", "openssl", "gnutls28", "openssh",
+#   "php8.3", "mariadb", "mysql-8.0", "postgresql-16", "redis",
+#   "curl", "libxml2", "libxslt", "imagemagick", "libgd2", "ghostscript",
+#   "glibc", "linux", "systemd", "sudo", "git", "postfix", "exim4", "bind9",
+# ]
+# notices_url = "https://ubuntu.com/security/notices.json"
+
+[debian_security]
+# packages = [
+#   "nginx", "apache2", "haproxy", "openssl", "gnutls28", "openssh",
+#   "php8.4", "mariadb", "postgresql-17", "redis",
+#   "curl", "libxml2", "libxslt", "imagemagick", "libgd2", "ghostscript",
+#   "glibc", "linux", "systemd", "sudo", "git", "postfix", "exim4", "bind9",
+# ]
+# feed_url = "https://www.debian.org/security/dsa-long.rdf"
+
 [llm]
 model      = "claude-sonnet-5-5"
 max_tokens = 2048

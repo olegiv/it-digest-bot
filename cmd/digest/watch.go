@@ -9,6 +9,7 @@ import (
 	"github.com/olegiv/it-digest-bot/internal/applerelease"
 	"github.com/olegiv/it-digest-bot/internal/claudecode"
 	"github.com/olegiv/it-digest-bot/internal/config"
+	"github.com/olegiv/it-digest-bot/internal/distrosec"
 	"github.com/olegiv/it-digest-bot/internal/drupalsec"
 	"github.com/olegiv/it-digest-bot/internal/gorelease"
 	"github.com/olegiv/it-digest-bot/internal/httpx"
@@ -23,7 +24,7 @@ func newWatchCmd(flags *rootFlags) *cobra.Command {
 	var dryRun bool
 	cmd := &cobra.Command{
 		Use:   "watch",
-		Short: "Check Claude Code, Go, PHP, iOS/macOS releases plus Drupal and PHP security advisories and post them",
+		Short: "Check Claude Code, Go, PHP, iOS/macOS releases plus Drupal, PHP, Ubuntu and Debian security advisories and post them",
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			ctx := cmd.Context()
 			cfg, log, err := loadConfigAndLogger(flags.configPath, "watch")
@@ -61,6 +62,7 @@ func newWatchCmd(flags *rootFlags) *cobra.Command {
 			for _, p := range applerelease.Platforms {
 				sources = append(sources, appleReleaseSource(cfg, apiHTTP, log, p))
 			}
+			sources = append(sources, distroSecuritySources(cfg, apiHTTP, log)...)
 
 			runner := &releasewatch.Runner{
 				Sources:  sources,
@@ -129,4 +131,23 @@ func phpSecuritySource(cfg *config.Config, h *httpx.Client, log *slog.Logger) *p
 	src.Client.SetAPIURL(cfg.PHP.AdvisoriesURL)
 	src.Logger = log
 	return src
+}
+
+// distroSecuritySources wires the Ubuntu and Debian security advisory
+// sources. Each is opt-in: it runs only when its package list is set.
+func distroSecuritySources(cfg *config.Config, h *httpx.Client, log *slog.Logger) []releasewatch.Source {
+	var out []releasewatch.Source
+	if u := cfg.UbuntuSecurity; u.Enabled() {
+		client := distrosec.NewUbuntuClient(h, u.Release).SetURL(u.NoticesURL)
+		src := distrosec.NewUbuntuSource(client, u.Packages)
+		src.Logger = log
+		out = append(out, src)
+	}
+	if d := cfg.DebianSecurity; d.Enabled() {
+		client := distrosec.NewDebianClient(h).SetURL(d.FeedURL)
+		src := distrosec.NewDebianSource(client, d.Packages)
+		src.Logger = log
+		out = append(out, src)
+	}
+	return out
 }

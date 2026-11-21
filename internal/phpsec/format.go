@@ -2,6 +2,7 @@ package phpsec
 
 import (
 	"fmt"
+	"net/url"
 	"strconv"
 	"strings"
 	"unicode/utf8"
@@ -46,11 +47,53 @@ func FormatAdvisory(a *Advisory) string {
 	return text
 }
 
+// plainText removes "scheme://…" and "www.…" tokens from advisory text (it
+// is posted as plain text, so such a URL would become a live link to
+// wherever the advisory author pointed it); bare domains are not removed.
+// https links to php.net and to the php GitHub organization stay; see
+// allowedLink.
+func plainText(s string) string {
+	return strings.Join(strings.Fields(telegram.StripBareLinks(s, allowedLink)), " ")
+}
+
+// allowedLink keeps https links to php.net and to github.com/php/….
+func allowedLink(raw string) bool {
+	u, err := url.Parse(raw)
+	if err != nil || u.Scheme != "https" || u.User != nil || u.Port() != "" {
+		return false
+	}
+	switch host := strings.ToLower(u.Hostname()); {
+	case host == "php.net" || strings.HasSuffix(host, ".php.net"):
+		return true
+	case host == "github.com":
+		return phpOrgPath(u.EscapedPath())
+	default:
+		return false
+	}
+}
+
+// phpOrgPath reports whether an escaped URL path stays inside /php/.
+// Browsers resolve dot segments ("/php/../x", "/php/%2e%2e/x") before
+// the request, so any "." or ".." segment, and any backslash (a path
+// separator to browsers), is rejected rather than resolved.
+func phpOrgPath(escaped string) bool {
+	p, err := url.PathUnescape(escaped)
+	if err != nil || !strings.HasPrefix(p, "/php/") || strings.Contains(p, "\\") {
+		return false
+	}
+	for _, seg := range strings.Split(p, "/") {
+		if seg == "." || seg == ".." {
+			return false
+		}
+	}
+	return true
+}
+
 func render(a *Advisory, withExcerpt bool) string {
 	var sb strings.Builder
 	fmt.Fprintf(&sb, "%s *PHP security advisory* — %s\n", severityEmoji(a.Severity), field(a.ID))
-	if a.Summary != "" {
-		fmt.Fprintf(&sb, "*%s*\n", field(a.Summary))
+	if summary := plainText(a.Summary); summary != "" {
+		fmt.Fprintf(&sb, "*%s*\n", field(summary))
 	}
 	sb.WriteString("\n")
 	fmt.Fprintf(&sb, "Severity: *%s*", esc(severityLabel(a.Severity)))
@@ -81,7 +124,7 @@ func render(a *Advisory, withExcerpt bool) string {
 	}
 
 	if withExcerpt {
-		if ex := Excerpt(a.Description); ex != "" {
+		if ex := plainText(Excerpt(a.Description)); ex != "" {
 			fmt.Fprintf(&sb, "\n%s\n", capField(esc(ex), MaxExcerptBytes))
 		}
 	}

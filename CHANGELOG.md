@@ -10,14 +10,73 @@ and this project adheres to [Semantic Versioning 2.0.0](https://semver.org/spec/
 ### Changed
 
 - Dependencies: `golang.org/x/net` v0.63.0, `golang.org/x/sync` v0.25.0,
-  `modernc.org/sqlite` v1.62.0 (with `modernc.org/libc` v1.82.2,
-  `modernc.org/memory` v1.13.0), `golang.org/x/sys` v0.50.0,
-  `golang.org/x/text` v0.44.0 and `github.com/spf13/pflag` v1.1.0. Routine
-  updates; govulncheck reported nothing for the previous versions.
+  `modernc.org/sqlite` v1.62.0 (with `modernc.org/libc` v1.80.1 and
+  `modernc.org/memory` v1.12.1, the exact versions sqlite v1.62.0
+  requires), `golang.org/x/sys` v0.50.0, `golang.org/x/text` v0.44.0 and
+  `github.com/spf13/pflag` v1.1.0. Routine updates; govulncheck reported
+  nothing for the previous versions.
+- `TestModerncPinnedToSQLite` fails whenever `modernc.org/libc` or
+  `modernc.org/memory` differ from the exact versions `modernc.org/sqlite`
+  requires in its own go.mod (a blanket `go get -u` raises them), and
+  Dependabot ignores both modules.
+- PHP security advisory posts drop the URLs and `www.` tokens in the
+  advisory summary and excerpt (new `telegram.StripBareLinks`), except
+  links to php.net and to github.com/php/…: the text is posted as plain
+  text, where Telegram clients would auto-link a URL the advisory author
+  wrote. Only `scheme://…` and `www.…` tokens are removed; bare domains
+  such as `example.com` stay (accepted, as in the digest). A github.com link whose path has `.` or `..` segments (also
+  percent-encoded) or a backslash is removed too, since browsers resolve
+  `github.com/php/../x` to another account.
+- The PHP security advisory source fails the run when GitHub returns an
+  empty advisory list instead of returning no candidates. php-src always
+  has published advisories, so an empty list is an upstream glitch;
+  before, on a database without a `php-security` baseline yet, the next
+  non-empty run would have taken a brand-new advisory into the first-run
+  baseline instead of posting it.
+- `telegram.CleanText` also removes invisible characters that are not
+  format characters: variation selectors, private-use characters,
+  noncharacters, Hangul fillers (U+115F, U+1160, U+3164, U+FFA0), U+034F
+  and U+17B4/U+17B5; U+2800 BRAILLE PATTERN BLANK becomes a space. They
+  could fake empty or padded fields in posts.
+- All four systemd units add `CapabilityBoundingSet=` (no capabilities),
+  `AmbientCapabilities=`, `PrivateDevices`, `ProtectClock`,
+  `ProtectHostname`, `ProtectKernelLogs`, `ProtectProc=invisible`,
+  `RestrictRealtime`, `RemoveIPC` and `UMask=0077` (state DB, WAL files
+  and backups private to the service user). `systemd-analyze security`
+  exposure dropped from about 4.4 to about 1.2 per unit where it was
+  measured (the score depends on the systemd version; check it on the
+  server). Re-run
+  `deploy/install.sh` to install them.
+- Source-package and Ubuntu-release validation live in the new leaf
+  package `internal/pkgname`, shared by `internal/config` and
+  `internal/distrosec` (DSA titles included), so config and feeds apply
+  the same rules. Source package names must be 2 to 64 bytes, as Debian
+  policy requires (a one-character name in a package list is now a
+  config error). `DefaultUbuntuRelease` is defined once, in `pkgname`.
+- distrosec types: `Notice.Family` (Ubuntu/Debian) decides wording,
+  hashtag and update command instead of prefix checks on the display
+  label and ID; fixed versions are `FixedVersion{Package, Version}`
+  values instead of "pkg version" strings; impact labels are shared
+  `Impact*` constants; the exported `ValidPackageName` /
+  `ValidUbuntuRelease` wrappers are gone (callers use `pkgname`). The
+  config structs gain `Enabled()`, used by `watch` and `config-check`.
+- Ubuntu/Debian security sources only decode the feeds; HTML-to-text,
+  paragraph cleaning and classification run for advisories that touch a
+  watched package. The Ubuntu notices response limit is 16 MiB (a page is
+  about 3 MB), and `it-digest-watch.service` sets `MemoryMax=512M` with
+  `GOMEMLIMIT=400MiB`, so a hostile or broken upstream cannot exhaust
+  the server.
 - `GITHUB_TOKEN` documentation: only public data is read, so a
   fine-grained token with no permissions is enough (`public_repo` is not
   needed).
 - Deploy scripts quote the SSH host in every `ssh` call.
+- `.claude/shared` submodule updated from d02ee2d to 4045037
+  (claude-code-support-tools main). Every shared command that takes
+  arguments now declares `argument-hint` (audit finding CC-001);
+  `/commit-prepare` adds a mandatory uncached test gate on the exact tree
+  to be committed; the Go toolchain hook also covers `go vet`, `make` and
+  Go commands later in a command line, and warns when `jq` is missing;
+  the code-quality command and agent gain untrusted-checkout guards.
 - Removed Claude Code commands and an agent copied from another project
   (`.claude/commands/{build,clean,migrate,test}.md`,
   `.claude/agents/test-runner.md`): they described oCMS (`make assets`,
@@ -48,6 +107,33 @@ and this project adheres to [Semantic Versioning 2.0.0](https://semver.org/spec/
   CVE, CWE, affected and fixed versions and a description excerpt.
   `GITHUB_TOKEN` is used when set, and only for `https://api.github.com`.
   Implemented in `internal/phpsec`.
+- `digest watch` can alert on Ubuntu and Debian security advisories for
+  the software your servers run (`internal/distrosec`). Opt-in per distro
+  through `[ubuntu_security] packages` / `[debian_security] packages`:
+  Ubuntu Security Notices for the configured release (default `noble`,
+  24.04 LTS) and Debian Security Advisories (versioned packages such as
+  `php8.4` select Debian 13; unversioned ones match every supported
+  release). An advisory is posted when it touches a watched
+  source package, local issues included. Posts flag remotely exploitable
+  issues, read from the advisory wording (kernel subsystem lists are not
+  remote cues), and show impact, the update command and, for Ubuntu, CVEs
+  and the fixed version. Bare URLs in the advisory text are removed unless
+  they point at ubuntu.com or debian.org, as in PHP advisory posts. An
+  Ubuntu fetch with no notice for the configured release fails the run (a
+  schema change or an unknown codename would otherwise go quiet).
+  DSA descriptions are split into paragraphs at every block element
+  (lists, definition lists, tables, headings), so two issues are never
+  merged into one paragraph. Each run logs one summary line per source
+  (fetched, watched, relevant, older than 7 days, undated, warnings) and
+  each feed problem as a `security feed warning`.
+  Advisories older than 7 days are not posted; there is no first-run
+  baseline. An older one that was never posted is recorded as seen with
+  one warning (new `releasewatch.Candidate.Expired` and `OutcomeExpired`),
+  so an advisory whose send kept failing cannot age out silently.
+  Notices without a source package, watched names that are binary
+  packages and unusual DSA titles are logged as warnings; an unusual DSA
+  title is still parsed for its ID and package and posted.
+  `config-check` shows whether each source is enabled.
 - Both PHP sources run in the same hourly run as the Go source and seed on
   their first run: the current state is recorded as the baseline and one
   "now tracked" notice is posted per source. Optional `[php] releases_url`
@@ -135,6 +221,11 @@ and this project adheres to [Semantic Versioning 2.0.0](https://semver.org/spec/
 - `it-digest-daily.service` sets `TimeoutStartSec=30min`, so a hung digest
   run is stopped and reported through the failure alert. Re-run
   `deploy/install.sh` (or `make deploy`) to install the updated units.
+- Dependabot (`.github/dependabot.yml`) opens one grouped PR per week for
+  the SHA-pinned GitHub Actions and one for Go modules. It never bumps
+  `modernc.org/libc` or `modernc.org/memory` on their own (they must match
+  `modernc.org/sqlite`); `TestModerncPinnedToSQLite` fails any PR that
+  gets them wrong.
 - GitHub Actions are pinned to full commit SHAs (`actions/checkout`
   v6.1.0, `actions/setup-go` v6.5.0, `golangci/golangci-lint-action`
   v9.3.0) instead of movable tags.
