@@ -29,8 +29,9 @@ const (
 	UbuntuPageSize = 20
 	// UbuntuPages is how many pages (newest first) one run reads. Ubuntu
 	// publishes about 45 notices a week per LTS release, so 40 cover
-	// several days, far more than an hourly run needs, with room for
-	// bursts and missed runs.
+	// roughly the last 6 days: far more than an hourly run needs, with
+	// room for bursts and missed runs, but a first run sees a little less
+	// than the full MaxAdvisoryAge week.
 	UbuntuPages = 2
 
 	// maxUbuntuBody bounds one decompressed page. Kernel notices embed
@@ -89,13 +90,14 @@ func (c *UbuntuClient) Fetch(ctx context.Context) ([]Notice, []string, error) {
 		seen     = map[string]bool{}
 	)
 	for page := range UbuntuPages {
-		body, err := c.fetchPage(ctx, page*UbuntuPageSize)
+		offset := page * UbuntuPageSize
+		body, err := c.fetchPage(ctx, offset)
 		if err != nil {
-			return nil, nil, err
+			return nil, warnings, fmt.Errorf("ubuntu notices offset %d: %w", offset, err)
 		}
 		notices, warns, total, err := ParseUbuntuNotices(body, c.release)
 		if err != nil {
-			return nil, nil, err
+			return nil, warnings, fmt.Errorf("ubuntu notices offset %d: %w", offset, err)
 		}
 		warnings = append(warnings, warns...)
 		for _, n := range notices {

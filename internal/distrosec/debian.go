@@ -23,9 +23,10 @@ const (
 	// DebianTrackerURL is the base of an advisory's security-tracker page,
 	// which lists its CVEs and fixed versions per release.
 	DebianTrackerURL = "https://security-tracker.debian.org/tracker/"
-	// DebianDistro labels Debian posts. DSAs cover the supported stable
-	// releases; the watched package names (php8.4, postgresql-17, …)
-	// select the release that matters.
+	// DebianDistro labels Debian posts. DSAs cover every supported stable
+	// release and are not filtered by release: a versioned watched name
+	// (php8.4, postgresql-17) selects one, an unversioned one (nginx)
+	// matches DSAs for all of them.
 	DebianDistro = "Debian"
 
 	maxDebianBody = 4 << 20
@@ -192,8 +193,15 @@ func htmlParagraphs(fragment string) string {
 			switch n.DataAtom {
 			case atom.A, atom.Script, atom.Style:
 				return
-			case atom.P, atom.Br, atom.Div, atom.Li:
+			// Block elements separate issues: the feed uses <p> today, but
+			// a <dl> of CVE/description pairs or a table must not merge
+			// two issues into one paragraph.
+			case atom.P, atom.Br, atom.Div, atom.Li, atom.Ul, atom.Ol,
+				atom.Dl, atom.Dt, atom.Dd, atom.Table, atom.Tr, atom.Blockquote, atom.Pre,
+				atom.H1, atom.H2, atom.H3, atom.H4, atom.H5, atom.H6:
 				sb.WriteString("\n\n")
+			case atom.Td, atom.Th:
+				sb.WriteString(" ")
 			}
 		}
 		for c := n.FirstChild; c != nil; c = c.NextSibling {

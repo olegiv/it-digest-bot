@@ -52,9 +52,10 @@ func (s *Source) Candidates(ctx context.Context) ([]releasewatch.Candidate, erro
 		s.logger().Warn("php security advisory skipped", "reason", w)
 	}
 	// php-src has dozens of published advisories, so an empty list is an
-	// upstream glitch, not a fact. Returning it would let the runner skip
-	// this run, and the first non-empty run would then take a brand-new
-	// advisory into the first-run baseline instead of posting it. Failing
+	// upstream glitch, not a fact. Before the source is seeded, returning
+	// it would let the runner skip this run, and the first non-empty run
+	// would then take a brand-new advisory into the first-run baseline
+	// instead of posting it. Failing
 	// keeps the baseline for a real list (and alerts via OnFailure).
 	if len(advisories) == 0 {
 		return nil, fmt.Errorf("php advisories: no published advisories returned; php/php-src always has some, so the endpoint or its response changed")

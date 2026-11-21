@@ -19,12 +19,12 @@ type Notice struct {
 	Distro     string    // "Ubuntu 24.04 LTS", "Debian"
 	Title      string    // "nginx vulnerabilities", "nginx - security update"
 	Packages   []string  // source packages the notice covers, in notice order
-	Fixed      []string  // "nginx 1.24.0-2ubuntu7.21" for watched packages; empty when unknown
+	Fixed      []string  // "nginx 1.24.0-2ubuntu7.21" per source package; Source narrows it to watched ones
 	CVEs       []string  // valid CVE IDs, in notice order
 	Paragraphs []string  // cleaned description paragraphs
 	Published  time.Time // zero when missing or unparsable
 	Link       string    // canonical advisory page, built from the validated ID
-	ProOnly    bool      // Ubuntu: the fix is published only to Ubuntu Pro (ESM/FIPS) pockets
+	ProOnly    bool      // Ubuntu: every binary of the fix is in an Ubuntu Pro pocket (ESM, FIPS, real-time)
 	Regression bool      // a follow-up that fixes a regression of an earlier update
 	Assessment
 
@@ -42,8 +42,8 @@ type Notice struct {
 
 // Analyze fills Paragraphs and Assessment from the advisory text the parser
 // kept. Sources call it only after the package filter, so a feed full of
-// unrelated (or hostile, oversized) advisories costs a decode and nothing
-// more. It is idempotent, and a no-op for a Notice built without raw text.
+// unrelated (or hostile, oversized) advisories costs a decode and the
+// per-item ID, title and package checks, nothing more. It is idempotent, and a no-op for a Notice built without raw text.
 func (n *Notice) Analyze() {
 	if n.analyzed || (n.rawDesc == "" && len(n.rawContext) == 0) {
 		return
@@ -82,8 +82,9 @@ func paragraphs(text string) []string {
 }
 
 // plainText cleans untrusted advisory text (telegram.CleanText) and removes
-// the link tokens Telegram clients would auto-link in a plain-escaped post,
-// except links to the distributions' own sites (allowedLink). CleanText
+// "scheme://…" and "www.…" tokens, which Telegram clients would auto-link
+// in a plain-escaped post, except links to the distributions' own sites
+// (allowedLink); bare domains are not removed. CleanText
 // runs first, so invisible characters cannot hide a URL from the filter.
 func plainText(s string) string {
 	s = telegram.StripBareLinks(telegram.CleanText(s), allowedLink)

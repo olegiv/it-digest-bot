@@ -79,12 +79,14 @@ func (s *Source) PackageKey() string { return s.pkgKey }
 // first.
 func (s *Source) Candidates(ctx context.Context) ([]releasewatch.Candidate, error) {
 	notices, warnings, err := s.client.Fetch(ctx)
+	log := s.logger()
+	// Logged before the error check: when a format change empties the
+	// feed, the per-item warnings are what shows the new format.
+	for _, w := range warnings {
+		log.Warn("security feed warning", "source", s.name, "warning", w)
+	}
 	if err != nil {
 		return nil, err
-	}
-	log := s.logger()
-	for _, w := range warnings {
-		log.Warn("security advisory skipped", "source", s.name, "reason", w)
 	}
 
 	now := time.Now
@@ -94,8 +96,12 @@ func (s *Source) Candidates(ctx context.Context) ([]releasewatch.Candidate, erro
 	cutoff := now().Add(-MaxAdvisoryAge)
 
 	var oldest time.Time
+	undated := 0
 	for i := range notices {
-		if p := notices[i].Published; !p.IsZero() && (oldest.IsZero() || p.Before(oldest)) {
+		switch p := notices[i].Published; {
+		case p.IsZero():
+			undated++
+		case oldest.IsZero() || p.Before(oldest):
 			oldest = p
 		}
 	}
@@ -162,7 +168,10 @@ func (s *Source) Candidates(ctx context.Context) ([]releasewatch.Candidate, erro
 		"relevant", len(out)-old,
 		"oldest_fetched", oldest,
 		"older_than_max_age", old,
-		"skipped", len(warnings))
+		// Undated advisories skip the age bound (they are posted, sorted
+		// last); a jump here means the feed's date format changed.
+		"undated", undated,
+		"warnings", len(warnings))
 	return out, nil
 }
 

@@ -15,24 +15,24 @@ and this project adheres to [Semantic Versioning 2.0.0](https://semver.org/spec/
   requires), `golang.org/x/sys` v0.50.0, `golang.org/x/text` v0.44.0 and
   `github.com/spf13/pflag` v1.1.0. Routine updates; govulncheck reported
   nothing for the previous versions.
-- `modernc.org/libc` and `modernc.org/memory` were briefly raised past the
-  versions `modernc.org/sqlite` is built against (libc v1.82.2 and memory
-  v1.13.0 instead of v1.80.1 and v1.12.1) by a blanket `go get -u`;
-  modernc.org/sqlite requires the exact libc version from its own go.mod.
-  They are pinned back, and `TestModerncPinnedToSQLite` now fails whenever
-  they drift.
+- `TestModerncPinnedToSQLite` fails whenever `modernc.org/libc` or
+  `modernc.org/memory` differ from the exact versions `modernc.org/sqlite`
+  requires in its own go.mod (a blanket `go get -u` raises them), and
+  Dependabot ignores both modules.
 - PHP security advisory posts drop the URLs and `www.` tokens in the
   advisory summary and excerpt (new `telegram.StripBareLinks`), except
   links to php.net and to github.com/php/…: the text is posted as plain
-  text, where Telegram clients would auto-link any URL the advisory author
-  wrote. A github.com link whose path has `.` or `..` segments (also
+  text, where Telegram clients would auto-link a URL the advisory author
+  wrote. Only `scheme://…` and `www.…` tokens are removed; bare domains
+  such as `example.com` stay (accepted, as in the digest). A github.com link whose path has `.` or `..` segments (also
   percent-encoded) or a backslash is removed too, since browsers resolve
   `github.com/php/../x` to another account.
 - The PHP security advisory source fails the run when GitHub returns an
   empty advisory list instead of returning no candidates. php-src always
   has published advisories, so an empty list is an upstream glitch;
-  before, the next non-empty run would have taken a brand-new advisory
-  into the first-run baseline instead of posting it.
+  before, on a database without a `php-security` baseline yet, the next
+  non-empty run would have taken a brand-new advisory into the first-run
+  baseline instead of posting it.
 - `telegram.CleanText` also removes invisible characters that are not
   format characters: variation selectors, private-use characters,
   noncharacters, Hangul fillers (U+115F, U+1160, U+3164, U+FFA0), U+034F
@@ -43,7 +43,9 @@ and this project adheres to [Semantic Versioning 2.0.0](https://semver.org/spec/
   `ProtectHostname`, `ProtectKernelLogs`, `ProtectProc=invisible`,
   `RestrictRealtime`, `RemoveIPC` and `UMask=0077` (state DB, WAL files
   and backups private to the service user). `systemd-analyze security`
-  exposure drops from 4.4-4.5 to 1.2 per unit. Re-run
+  exposure dropped from about 4.4 to about 1.2 per unit where it was
+  measured (the score depends on the systemd version; check it on the
+  server). Re-run
   `deploy/install.sh` to install them.
 - Source-package and Ubuntu-release validation live in the new leaf
   package `internal/pkgname`, shared by `internal/config` and
@@ -100,8 +102,9 @@ and this project adheres to [Semantic Versioning 2.0.0](https://semver.org/spec/
   the software your servers run (`internal/distrosec`). Opt-in per distro
   through `[ubuntu_security] packages` / `[debian_security] packages`:
   Ubuntu Security Notices for the configured release (default `noble`,
-  24.04 LTS) and Debian Security Advisories (packages such as `php8.4`
-  select Debian 13). An advisory is posted when it touches a watched
+  24.04 LTS) and Debian Security Advisories (versioned packages such as
+  `php8.4` select Debian 13; unversioned ones match every supported
+  release). An advisory is posted when it touches a watched
   source package, local issues included. Posts flag remotely exploitable
   issues, read from the advisory wording (kernel subsystem lists are not
   remote cues), and show impact, the update command and, for Ubuntu, CVEs
@@ -109,6 +112,11 @@ and this project adheres to [Semantic Versioning 2.0.0](https://semver.org/spec/
   they point at ubuntu.com or debian.org, as in PHP advisory posts. An
   Ubuntu fetch with no notice for the configured release fails the run (a
   schema change or an unknown codename would otherwise go quiet).
+  DSA descriptions are split into paragraphs at every block element
+  (lists, definition lists, tables, headings), so two issues are never
+  merged into one paragraph. Each run logs one summary line per source
+  (fetched, watched, relevant, older than 7 days, undated, warnings) and
+  each feed problem as a `security feed warning`.
   Advisories older than 7 days are not posted; there is no first-run
   baseline. An older one that was never posted is recorded as seen with
   one warning (new `releasewatch.Candidate.Expired` and `OutcomeExpired`),

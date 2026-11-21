@@ -39,9 +39,10 @@ func CleanText(s string) string {
 
 const brailleBlank = '\u2800'
 
-// invisible reports whether r renders as nothing: format characters,
-// variation selectors, private use, noncharacters and the default-ignorable
-// fillers that are none of those.
+// invisible reports whether r renders as nothing or as an unpredictable
+// vendor glyph: format characters, variation selectors, private use,
+// noncharacters and a hand-picked set of default-ignorable fillers that
+// are none of those.
 func invisible(r rune) bool {
 	switch r {
 	case '\u034f', '\u115f', '\u1160', '\u17b4', '\u17b5', '\u3164', '\uffa0':

@@ -47,10 +47,11 @@ func FormatAdvisory(a *Advisory) string {
 	return text
 }
 
-// plainText removes the link tokens Telegram clients would auto-link in
-// advisory text (it is posted as plain text, so a URL in it would become a
-// live link to wherever the advisory author pointed it). Links to php.net
-// and to the php GitHub organization stay; see allowedLink.
+// plainText removes "scheme://…" and "www.…" tokens from advisory text (it
+// is posted as plain text, so such a URL would become a live link to
+// wherever the advisory author pointed it); bare domains are not removed.
+// https links to php.net and to the php GitHub organization stay; see
+// allowedLink.
 func plainText(s string) string {
 	return strings.Join(strings.Fields(telegram.StripBareLinks(s, allowedLink)), " ")
 }

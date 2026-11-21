@@ -64,7 +64,8 @@ github_repo = "anthropics/claude-code"
 # (older ones get one "expired" warning in the journal). Use source package
 # names, not binary ones (php8.3, not php8.3-fpm; openssl, not libssl3).
 # Package names are distro-specific (php8.3 on Ubuntu 24.04, php8.4 on
-# Debian 13). URL overrides follow the drupal_security.feed_url rules.
+# Debian 13); unversioned Debian names (nginx) match DSAs for every
+# supported Debian release. URL overrides follow the drupal_security.feed_url rules.
 #
 # Posts go to the public channel. Watch the latest releases with a broad
 # list of the most commonly used server packages, like the lists below,

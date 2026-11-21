@@ -137,8 +137,8 @@ func stripDeniedLinks(s string, allow func(string) bool) string {
 	return b.String()
 }
 
-// StripBareLinks removes the tokens Telegram clients turn into links in
-// plain text, any "scheme://…" or "www.…" token (see bareLinkAt), unless
+// StripBareLinks removes the "scheme://…" and "www.…" tokens (see
+// bareLinkAt) that Telegram clients turn into links in plain text, unless
 // allow(url) reports true ("www." tokens are checked as "http://www.…").
 // Unlike EscapeMarkdownV2Links it parses no markup: use it on text that is
 // then escaped with EscapeMarkdownV2Plain, where code spans and links are

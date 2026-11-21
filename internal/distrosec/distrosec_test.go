@@ -7,14 +7,17 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 	"unicode"
+	"unicode/utf8"
 
 	"github.com/olegiv/it-digest-bot/internal/httpx"
 	"github.com/olegiv/it-digest-bot/internal/releasewatch"
@@ -164,8 +167,11 @@ func TestUbuntuClientPagesAndQuery(t *testing.T) {
 	if len(queries) != UbuntuPages {
 		t.Errorf("requests = %d, want %d", len(queries), UbuntuPages)
 	}
-	if queries[0] != "limit=20&offset=0&release=noble" || queries[1] != "limit=20&offset=20&release=noble" {
-		t.Errorf("queries = %v", queries)
+	for i, raw := range queries {
+		q, err := url.ParseQuery(raw)
+		if err != nil || q.Get("release") != "noble" || q.Get("limit") != "20" || q.Get("offset") != strconv.Itoa(i*20) || len(q) != 3 {
+			t.Errorf("query %d = %q", i, raw)
+		}
 	}
 	if len(notices) != 6 {
 		t.Errorf("duplicates across pages must collapse: %d", len(notices))
@@ -219,21 +225,22 @@ func TestUbuntuClientRejectsEmpty(t *testing.T) {
 func TestClientErrors(t *testing.T) {
 	t.Parallel()
 	for _, tc := range []struct {
-		name    string
-		handler http.HandlerFunc
-		want    string
+		name          string
+		handler       http.HandlerFunc
+		ubuntu, debia string
 	}{
-		{"status", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusForbidden) }, "http 403"},
-		{"bad body", func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte("<html>")) }, ""},
+		{"status", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusForbidden) }, "ubuntu notices offset 0: ubuntu notices: http 403", "debian security feed: http 403"},
+		{"bad body", func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte("<html>")) }, "ubuntu notices offset 0: decode ubuntu notices response", "parse debian security feed"},
 	} {
 		srv := httptest.NewServer(tc.handler)
 		_, _, uerr := NewUbuntuClient(testHTTP(), "noble").SetURL(srv.URL).Fetch(context.Background())
 		_, _, derr := NewDebianClient(testHTTP()).SetURL(srv.URL).Fetch(context.Background())
 		srv.Close()
-		for _, err := range []error{uerr, derr} {
-			if err == nil || !strings.Contains(err.Error(), tc.want) {
-				t.Errorf("%s: err = %v, want %q", tc.name, err, tc.want)
-			}
+		if uerr == nil || !strings.HasPrefix(uerr.Error(), tc.ubuntu) {
+			t.Errorf("%s: ubuntu err = %v, want %q", tc.name, uerr, tc.ubuntu)
+		}
+		if derr == nil || !strings.HasPrefix(derr.Error(), tc.debia) {
+			t.Errorf("%s: debian err = %v, want %q", tc.name, derr, tc.debia)
 		}
 	}
 	big := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
@@ -242,6 +249,13 @@ func TestClientErrors(t *testing.T) {
 	defer big.Close()
 	if _, _, err := NewDebianClient(testHTTP()).SetURL(big.URL).Fetch(context.Background()); err == nil || !strings.Contains(err.Error(), "exceeds") {
 		t.Errorf("oversize debian feed: %v", err)
+	}
+	bigUbuntu := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(strings.Repeat(" ", maxUbuntuBody+1)))
+	}))
+	defer bigUbuntu.Close()
+	if _, _, err := NewUbuntuClient(testHTTP(), "noble").SetURL(bigUbuntu.URL).Fetch(context.Background()); err == nil || !strings.Contains(err.Error(), "exceeds") {
+		t.Errorf("oversize ubuntu page: %v", err)
 	}
 }
 
@@ -464,6 +478,13 @@ func TestFormatNoticeEscapesAndBounds(t *testing.T) {
 	if strings.Contains(got, "evil.example") {
 		t.Errorf("bare link kept:\n%s", got)
 	}
+	if !strings.Contains(got, "\n⚠️ The fix is published for Ubuntu Pro only \\(ESM, FIPS or real\\-time kernel\\)\n") {
+		t.Errorf("Pro-only line missing:\n%s", got)
+	}
+	n.ProOnly = false
+	if strings.Contains(FormatNotice(n), "Ubuntu Pro") {
+		t.Error("Pro-only line shown for a regular fix")
+	}
 	reg := FormatNotice(&Notice{ID: "DSA-1-2", Distro: DebianDistro, Regression: true, Link: DebianTrackerURL + "DSA-1-2"})
 	if !strings.HasPrefix(reg, "♻️ *Debian security regression fix*") || !strings.Contains(reg, "`apt update && apt upgrade`") {
 		t.Errorf("regression post:\n%s", reg)
@@ -551,6 +572,124 @@ func TestUnusualDSATitle(t *testing.T) {
 	}
 }
 
+// TestHTMLParagraphs: block elements separate paragraphs, so a list or
+// table of issues is not merged into one paragraph.
+func TestHTMLParagraphs(t *testing.T) {
+	t.Parallel()
+	html := `<h3>Details</h3><dl><dt>CVE-2026-1</dt><dd>A local user could read files.</dd>` +
+		`<dt>CVE-2026-2</dt><dd>A remote attacker could crash <b>nginx</b>.</dd></dl>` +
+		`<table><tr><td>bookworm</td><td>1.2</td></tr><tr><td>trixie</td><td>1.3</td></tr></table>` +
+		`<ul><li>one</li><li>two</li></ul><p>See <a href="https://evil.example">the tracker</a>.</p><script>x()</script>`
+	want := []string{
+		"Details", "CVE-2026-1", "A local user could read files.", "CVE-2026-2",
+		"A remote attacker could crash nginx.", "bookworm 1.2", "trixie 1.3", "one", "two", "See .",
+	}
+	if got := paragraphs(htmlParagraphs(html)); strings.Join(got, "|") != strings.Join(want, "|") {
+		t.Errorf("paragraphs = %q", got)
+	}
+}
+
+// ubuntuPage builds a notices.json page with n notices for noble; bad
+// adds one notice with an invalid ID (a warning).
+func ubuntuPage(first, n, total int, bad bool) string {
+	var items []string
+	for i := range n {
+		items = append(items, fmt.Sprintf(`{"id":"USN-%d-1","title":"x","published":"2026-11-20T00:00:00","release_packages":{"noble":[{"name":"nginx","is_source":true}]}}`, first+i))
+	}
+	if bad {
+		items = append(items, `{"id":"LSN-1","release_packages":{"noble":[]}}`)
+	}
+	return fmt.Sprintf(`{"notices":[%s],"total_results":%d}`, strings.Join(items, ","), total)
+}
+
+// TestUbuntuPaging: the second page is read only when total_results says
+// there is one, and a failing second page fails the fetch with its offset
+// while the first page's warnings still reach the log.
+func TestUbuntuPaging(t *testing.T) {
+	t.Parallel()
+	for total, wantRequests := range map[int]int{19: 1, 20: 1, 21: 2, 1701: 2} {
+		var requests atomic.Int32
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			requests.Add(1)
+			first := 1
+			if r.URL.Query().Get("offset") == "20" {
+				first = 21
+			}
+			_, _ = w.Write([]byte(ubuntuPage(first, min(20, max(total-first+1, 1)), total, false)))
+		}))
+		if _, _, err := NewUbuntuClient(testHTTP(), "noble").SetURL(srv.URL).Fetch(context.Background()); err != nil {
+			t.Errorf("total %d: %v", total, err)
+		}
+		srv.Close()
+		if got := int(requests.Load()); got != wantRequests {
+			t.Errorf("total %d: requests = %d, want %d", total, got, wantRequests)
+		}
+	}
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Query().Get("offset") == "20" {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		_, _ = w.Write([]byte(ubuntuPage(1, 20, 40, true)))
+	}))
+	defer srv.Close()
+	var logs strings.Builder
+	src := NewUbuntuSource(NewUbuntuClient(testHTTP(), "noble").SetURL(srv.URL), []string{"nginx"})
+	src.Logger = slog.New(slog.NewTextHandler(&logs, nil))
+	_, err := src.Candidates(context.Background())
+	if err == nil || !strings.HasPrefix(err.Error(), "ubuntu notices offset 20: ubuntu notices: http 404") {
+		t.Errorf("page 2 failure: %v", err)
+	}
+	if !strings.Contains(logs.String(), `level=WARN msg="security feed warning" source=ubuntu-security warning="notice 20: invalid id`) {
+		t.Errorf("page 1 warning not logged before the error:\n%s", logs.String())
+	}
+}
+
+// TestSummaryCountsUndated: undated advisories are posted (sorted last) and
+// counted in the summary line, so a date-format change shows up.
+func TestSummaryCountsUndated(t *testing.T) {
+	t.Parallel()
+	body := `{"notices":[{"id":"USN-1-1","title":"x","published":"yesterday","release_packages":{"noble":[{"name":"nginx","is_source":true}]}},` +
+		`{"id":"USN-2-1","title":"y","published":"2026-11-20T00:00:00","release_packages":{"noble":[{"name":"nginx","is_source":true}]}}],"total_results":2}`
+	var logs strings.Builder
+	src := NewUbuntuSource(NewUbuntuClient(testHTTP(), "noble").SetURL(serve(t, []byte(body), nil).URL), []string{"nginx"})
+	src.Now = fixtureNow
+	src.Logger = slog.New(slog.NewTextHandler(&logs, nil))
+	cands, err := src.Candidates(context.Background())
+	if err != nil || len(cands) != 2 || cands[1].Version != "USN-1-1" {
+		t.Fatalf("candidates %+v err %v", cands, err)
+	}
+	if !strings.Contains(logs.String(), "undated=1 warnings=0") {
+		t.Errorf("summary:\n%s", logs.String())
+	}
+}
+
+// TestFormatNoticeUTF8Caps: every cap cuts on a rune boundary, whatever
+// the alignment of multi-byte text against the limit.
+func TestFormatNoticeUTF8Caps(t *testing.T) {
+	t.Parallel()
+	for pad := range 4 {
+		for _, r := range []string{"é", "日", "🔒"} {
+			long := strings.Repeat("a", pad) + strings.Repeat(r, 400)
+			n := &Notice{
+				ID: "USN-1-1", Distro: "Ubuntu 24.04 LTS", Link: UbuntuNoticePageURL + "USN-1-1",
+				Title:      long,
+				Packages:   []string{"nginx"},
+				Fixed:      []string{"nginx " + long},
+				Paragraphs: []string{long},
+			}
+			got := FormatNotice(n)
+			if !utf8.ValidString(got) || !telegram.WellFormedMarkdownV2(strings.ReplaceAll(got, "*", "")) {
+				t.Errorf("pad %d %q: invalid post:\n%s", pad, r, got)
+			}
+			if c := cleanLine(long, 201); !utf8.ValidString(c) || len(c) > 201 {
+				t.Errorf("pad %d %q: cleanLine = %q", pad, r, c)
+			}
+		}
+	}
+}
+
 func TestFixedFor(t *testing.T) {
 	t.Parallel()
 	got := fixedFor([]string{"linux 1", "linux-aws 2", "nginx 3"}, []string{"linux", "nginx"})
@@ -571,8 +710,12 @@ func TestSourceFetchErrorAndLogger(t *testing.T) {
 	if _, err := src.Candidates(context.Background()); err == nil {
 		t.Error("want error")
 	}
-	if src.logger() == nil {
-		t.Error("nil logger must fall back to the default")
+	if src.logger() != slog.Default() {
+		t.Error("nil logger must fall back to slog.Default")
+	}
+	own := slog.New(slog.DiscardHandler)
+	if src.Logger = own; src.logger() != own {
+		t.Error("Logger must be used when set")
 	}
 }
 

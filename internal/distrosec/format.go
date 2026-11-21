@@ -68,7 +68,7 @@ func FormatNotice(n *Notice) string {
 		fmt.Fprintf(&sb, "🛠 Fixed in: %s\n", strings.Join(parts, ", "))
 	}
 	if n.ProOnly {
-		sb.WriteString("⚠️ The fix is published for Ubuntu Pro \\(ESM/FIPS\\) only\n")
+		sb.WriteString("⚠️ The fix is published for Ubuntu Pro only \\(ESM, FIPS or real\\-time kernel\\)\n")
 	}
 	hint := updateDebianHint
 	if strings.HasPrefix(n.Distro, "Ubuntu") {
